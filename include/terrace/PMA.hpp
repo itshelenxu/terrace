@@ -262,7 +262,7 @@ static uint_t find_prev_valid(uint32_t volatile  * volatile dests, uint_t start)
 static inline int find_node(int index, int len) { return (index / len) * len; }
 */
 
-bool PMA::check_no_locks() {
+bool inline PMA::check_no_locks() {
   bool ret = true;
 #if ENABLE_PMA_LOCK == 1
   ret = ret && node_lock.check_unlocked();
@@ -285,7 +285,7 @@ bool PMA::check_no_locks() {
   return ret;
 }
 
-bool PMA::check_no_locks_for_me(uint64_t task_id) {
+bool inline PMA::check_no_locks_for_me(uint64_t task_id) {
 
   bool ret = true;
 #if ENABLE_PMA_LOCK == 1
@@ -309,7 +309,7 @@ bool PMA::check_no_locks_for_me(uint64_t task_id) {
   return ret;
 }  
 
-bool PMA::check_no_node_locks_for_me(uint64_t task_id) {
+bool inline PMA::check_no_node_locks_for_me(uint64_t task_id) {
 #if ENABLE_PMA_LOCK == 0
   return true;
 #else
@@ -330,7 +330,7 @@ bool ret = true;
 #endif
 }  
 
-bool PMA::check_no_node_locks_held_by_me(uint64_t task_id) {
+bool inline PMA::check_no_node_locks_held_by_me(uint64_t task_id) {
   #if ENABLE_PMA_LOCK != 1
       return true;
   #else
@@ -347,12 +347,12 @@ bool PMA::check_no_node_locks_held_by_me(uint64_t task_id) {
 }  
 
 
-uint_t next_leaf(uint_t index, int loglogN) {
+uint_t inline next_leaf(uint_t index, int loglogN) {
   return ((index >> loglogN) + 1) << (loglogN);
 }
 
 
-bool PMA::grab_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
+bool inline PMA::grab_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
   #if ENABLE_PMA_LOCK != 1
       return true;
   #else
@@ -370,7 +370,7 @@ bool PMA::grab_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
   return true;
 #endif
 }
-void PMA::release_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
+void inline PMA::release_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
   #if ENABLE_PMA_LOCK != 1
       return;
   #else
@@ -384,7 +384,7 @@ void PMA::release_all_locks(uint64_t task_id, bool exclusive, REASONS reason) {
 #endif
 }
 
-void PMA::clear() {
+void inline PMA::clear() {
   printf("clear called\n");
   uint_t n = 0;
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
@@ -401,7 +401,7 @@ void PMA::clear() {
 
 
 // TODO jump to next leaf
-vector<tuple<uint32_t, uint32_t, uint32_t>> PMA::get_edges() {
+vector<tuple<uint32_t, uint32_t, uint32_t>> inline PMA::get_edges() {
   // TODO grab locks in the lock list
   // for now, grabs the global lock
 #if ENABLE_PMA_LOCK == 1
@@ -435,7 +435,7 @@ vector<tuple<uint32_t, uint32_t, uint32_t>> PMA::get_edges() {
 }
 
 
-uint64_t PMA::get_n() {
+uint64_t inline PMA::get_n() {
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock_shared();
 #endif
@@ -446,7 +446,7 @@ uint64_t PMA::get_n() {
   return size;
 }
 
-uint64_t PMA::get_size() {
+uint64_t inline PMA::get_size() {
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock_shared();
 #endif
@@ -460,7 +460,7 @@ uint64_t PMA::get_size() {
 }
 
 
-void print_array(edge_list_t *edges) {
+void inline print_array(edge_list_t *edges) {
   printf("N = %ld, logN = %d\n", edges->N, edges->logN);
   for (uint_t i = 0; i < edges->N; i++) {
     if (edges->dests[i]==NULL_VAL) {
@@ -478,7 +478,7 @@ void print_array(edge_list_t *edges) {
   printf("\n\n");
 }
 
-void PMA::print_array(uint64_t worker_num) {
+void inline PMA::print_array(uint64_t worker_num) {
   printf("worker num: %lu, N = %ld, logN = %d, density_limit = %f\n", worker_num, edges.N, edges.logN, edges.density_limit);
   for (uint_t i = 0; i < edges.N; i++) {
     if (edges.dests[i]==NULL_VAL) {
@@ -505,7 +505,7 @@ void PMA::print_array(uint64_t worker_num) {
 }
 
 
-uint_t get_density_count(edge_list_t *list, uint_t index, uint_t len) {
+uint_t inline get_density_count(edge_list_t *list, uint_t index, uint_t len) {
  /* 
   uint32_t full = 0;
   uint32_t i = index;
@@ -568,7 +568,7 @@ uint_t get_density_count(edge_list_t *list, uint_t index, uint_t len) {
   
 }
 
-uint64_t get_density_count_par(edge_list_t *list, uint_t index, uint_t len, std::vector<uint_t> &sub_counts) {
+uint64_t inline get_density_count_par(edge_list_t *list, uint_t index, uint_t len, std::vector<uint_t> &sub_counts) {
   std::vector<uint64_t> worker_counts(ParallelTools::getWorkers()*8);
   uint32_t volatile  * volatile dests = list->dests;
   temp_pfor(uint_t j = index; j < index+len; j+= REDISTRIBUTE_PAR_SIZE) {
@@ -590,12 +590,12 @@ uint64_t get_density_count_par(edge_list_t *list, uint_t index, uint_t len, std:
 
 // get density of a node
 // should already be locked if you are calling get density
-double get_density(edge_list_t *list, uint_t index, uint_t len) {
+double inline get_density(edge_list_t *list, uint_t index, uint_t len) {
   double full_d = (double)get_density_count(list, index, len);
   return full_d / len;
 }
 
-bool check_no_full_leaves(edge_list_t *list, uint_t index, uint_t len) {
+bool inline check_no_full_leaves(edge_list_t *list, uint_t index, uint_t len) {
   for (uint_t i = index; i < index + len; i+= list->logN) {
     bool full = true;
     for (uint_t j = i; j < i + list->logN; j++) {
@@ -611,11 +611,11 @@ bool check_no_full_leaves(edge_list_t *list, uint_t index, uint_t len) {
 }
 
 // height of this node in the tree
-int get_depth(edge_list_t *list, uint_t len) { return bsr_word(list->N / len); }
+int inline get_depth(edge_list_t *list, uint_t len) { return bsr_word(list->N / len); }
 
 // when adjusting the list size, make sure you're still in the
 // density bound
-pair_double density_bound(edge_list_t *list, int depth) {
+pair_double inline density_bound(edge_list_t *list, int depth) {
   pair_double pair;
 
   // between 1/4 and 1/2
@@ -633,7 +633,7 @@ pair_double density_bound(edge_list_t *list, int depth) {
 //assumes the node_lock is held
 //returns where me have to start checking for sentinals again
 // ths is just the start + the degree so we can run some fasts paths
-uint_t PMA::fix_sentinel(uint32_t node_index, uint_t in) {
+uint_t inline PMA::fix_sentinel(uint32_t node_index, uint_t in) {
   // we know the first sentinal will never move so we just ignore it
   assert(node_index > 0);
   //node_lock.lock_shared();
@@ -652,7 +652,7 @@ uint_t PMA::fix_sentinel(uint32_t node_index, uint_t in) {
 // index: starting position in ofm structure
 // len: area to redistribute
 // should already be locked
-void PMA::redistribute(uint_t index, uint64_t len) {
+void inline PMA::redistribute(uint_t index, uint64_t len) {
   //printf("len = %u\n", len);
   assert(find_leaf(&edges, index) == index);
   
@@ -779,7 +779,7 @@ void PMA::redistribute(uint_t index, uint64_t len) {
   //printf("REDISTRIBUTE END: index:%u, len %u, worker %lu\n", index, len, get_worker_num());
 }
 
-void PMA::redistribute_par(uint_t index, uint64_t len, std::vector<uint_t> &sub_counts, uint_t num_elements, bool for_double) {
+void inline PMA::redistribute_par(uint_t index, uint64_t len, std::vector<uint_t> &sub_counts, uint_t num_elements, bool for_double) {
   assert(find_leaf(&edges, index) == index);
   //printf("par len = %u\n", len);
 
@@ -892,7 +892,7 @@ void PMA::redistribute_par(uint_t index, uint64_t len, std::vector<uint_t> &sub_
 
 
 //TODO pass in subcounts and do redistibute_par when big
-void PMA::double_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t num_elements) {
+void inline PMA::double_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t num_elements) {
   //printf("doubling list by worker %lu\n", get_worker_num());
   grab_all_locks(task_id, true, DOUBLE);
   uint64_t new_N = edges.N * 2;
@@ -955,7 +955,7 @@ void PMA::double_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t 
 
 }
 
-void PMA::half_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t num_elements) {
+void inline PMA::half_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t num_elements) {
   //printf("doubling list by worker %lu\n", get_worker_num());
   grab_all_locks(task_id, true, DOUBLE);
   uint64_t new_N = edges.N / 2;
@@ -1038,7 +1038,7 @@ void PMA::half_list(uint64_t task_id, std::vector<uint_t> &sub_counts, uint_t nu
 
 // index is the beginning of the sequence that you want to slide right.
 // we wil always hold locks to the end of the leaf so we don't need to lock here
-void PMA::slide_right(uint_t index, uint32_t *vals, uint32_t *dests) {
+void inline PMA::slide_right(uint_t index, uint32_t *vals, uint32_t *dests) {
   // edges.list_lock.lock_shared();
   uint32_t el_val = vals[index];
   uint32_t el_dest = dests[index];
@@ -1087,7 +1087,7 @@ void PMA::slide_right(uint_t index, uint32_t *vals, uint32_t *dests) {
 // index is the beginning of the sequence that you want to slide left.
 // the element we start at will be deleted
 // we wil always hold locks to the end of the leaf so we don't need to lock here
-void PMA::slide_left(uint_t index, uint32_t *vals, uint32_t *dests) {
+void inline PMA::slide_left(uint_t index, uint32_t *vals, uint32_t *dests) {
   // edges.list_lock.lock_shared();
   // uint32_t original_index = index;
   //printf("start of slide right, original_index: %d, worker number: %lu, \n", original_index, get_worker_num());
@@ -1125,7 +1125,7 @@ void PMA::slide_left(uint_t index, uint32_t *vals, uint32_t *dests) {
 // if no such element is found, returns end (because insert shifts everything to
 // the right)
 // assumes we already hold the list_lock and the relevant lock_array locks
-uint_t binary_search(const edge_list_t *list, uint32_t elem_dest, uint32_t elem_val, uint_t start,
+uint_t inline binary_search(const edge_list_t *list, uint32_t elem_dest, uint32_t elem_val, uint_t start,
                        uint_t end) {
   uint32_t *dests = (uint32_t *) list->dests;
 
@@ -1229,7 +1229,7 @@ uint_t binary_search(const edge_list_t *list, uint32_t elem_dest, uint32_t elem_
   return end;
 }
 
-uint32_t PMA::find_value(uint32_t src, uint32_t dest) {
+uint32_t inline PMA::find_value(uint32_t src, uint32_t dest) {
 
 #if ENABLE_PMA_LOCK == 1
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
@@ -1269,7 +1269,7 @@ uint32_t PMA::find_value(uint32_t src, uint32_t dest) {
 }
 
 //assumes node_lock is held
-uint32_t PMA::find_contaning_node(uint_t index) {
+uint32_t inline PMA::find_contaning_node(uint_t index) {
   uint32_t start = 0; 
   uint32_t end = nodes.size()-1;
   while (end - start > 1) {
@@ -1299,7 +1299,7 @@ uint32_t PMA::find_contaning_node(uint_t index) {
   }
 }
 
-pair_int PMA::which_locks_in_range(uint_t index, uint_t len, uint32_t guess) {
+pair_int inline PMA::which_locks_in_range(uint_t index, uint_t len, uint32_t guess) {
   uint32_t start;
 which_locks_in_range_start:
 
@@ -1357,7 +1357,7 @@ which_locks_in_range_start:
   return {start, end};
 }
 
-pair_int PMA::grab_locks_in_range_with_resets(uint64_t task_id, uint_t index, uint_t len, REASONS reason, uint32_t guess) {
+pair_int inline PMA::grab_locks_in_range_with_resets(uint64_t task_id, uint_t index, uint_t len, REASONS reason, uint32_t guess) {
   uint_t orig_n = edges.N;
 #if ENABLE_PMA_LOCK == 1
   start_grab_locks_in_range_with_resets:
@@ -1388,7 +1388,7 @@ pair_int PMA::grab_locks_in_range_with_resets(uint64_t task_id, uint_t index, ui
   return ends;
 }
 
-void PMA::release_locks_in_range(uint64_t task_id, pair_int locks, REASONS reason) {
+void inline PMA::release_locks_in_range(uint64_t task_id, pair_int locks, REASONS reason) {
 #if ENABLE_PMA_LOCK == 1
 uint32_t start = locks.x;
   uint32_t end = locks.y;
@@ -1399,7 +1399,7 @@ uint32_t start = locks.x;
 #endif
 }
 
-pair_int PMA::which_locks_for_leaf(uint32_t src) {
+pair_int inline PMA::which_locks_for_leaf(uint32_t src) {
   uint_t start_index = find_leaf(&edges, nodes[src].beginning);
   uint_t end_index = next_leaf(nodes[src].end, edges.loglogN);
   uint32_t first_node = src;
@@ -1413,7 +1413,7 @@ pair_int PMA::which_locks_for_leaf(uint32_t src) {
   return {first_node, last_node};
 }
 
-pair_int PMA::grab_locks_for_leaf_with_resets(uint64_t task_id, uint32_t src, REASONS reason) {
+pair_int inline PMA::grab_locks_for_leaf_with_resets(uint64_t task_id, uint32_t src, REASONS reason) {
 #if ENABLE_PMA_LOCK == 1
 start_grab_locks_for_leaf_with_resets:
 #endif
@@ -1440,7 +1440,7 @@ start_grab_locks_for_leaf_with_resets:
   return ends;
 }
 
-bool PMA::check_every_lock_in_leaf(uint64_t task_id, uint_t index) {
+bool inline PMA::check_every_lock_in_leaf(uint64_t task_id, uint_t index) {
   uint_t start = find_leaf(&edges, index);
   uint_t end = next_leaf(index, edges.loglogN);
   for (uint_t i = start; i < end; i++) {
@@ -1455,7 +1455,7 @@ bool PMA::check_every_lock_in_leaf(uint64_t task_id, uint_t index) {
   return true;
 }
 
-bool PMA::check_every_lock_in_node(uint64_t task_id, uint_t index, uint_t len) {
+bool inline PMA::check_every_lock_in_node(uint64_t task_id, uint_t index, uint_t len) {
 #if ENABLE_PMA_LOCK == 1
   uint_t start = find_leaf(&edges, index);
   for (uint_t i = start; i < start + len; i++) {
@@ -1473,7 +1473,7 @@ bool PMA::check_every_lock_in_node(uint64_t task_id, uint_t index, uint_t len) {
 // insert elem at index
 // assumes the lock on index is held by the parent
 // and releases it when it is done with it
-void PMA::insert(uint64_t task_id, uint_t index, uint32_t elem_dest, uint32_t elem_val, uint32_t src
+void inline PMA::insert(uint64_t task_id, uint_t index, uint32_t elem_dest, uint32_t elem_val, uint32_t src
   #if ENABLE_PMA_LOCK == 1
   , pair_int held_locks
   #endif
@@ -1740,7 +1740,7 @@ void PMA::insert(uint64_t task_id, uint_t index, uint32_t elem_dest, uint32_t el
 // remove elem at index
 // assumes the lock on index is held by the parent
 // and releases it when it is done with it
-void PMA::remove(uint64_t task_id, uint_t index, uint32_t elem_dest, uint32_t src
+void inline PMA::remove(uint64_t task_id, uint_t index, uint32_t elem_dest, uint32_t src
   #if ENABLE_PMA_LOCK == 1
   , pair_int held_locks
   #endif
@@ -2038,7 +2038,7 @@ PMA::sparse_matrix_vector_multiplication(std::vector<uint32_t> const &v) {
 }
 */
 
-void PMA::print_graph() {
+void inline PMA::print_graph() {
   uint32_t num_vertices = nodes.size();
   for (uint32_t i = 0; i < num_vertices; i++) {
     // printf("i: %d\n", i);
@@ -2063,7 +2063,7 @@ void PMA::print_graph() {
 }
 
 // add a node to the graph
-void PMA::add_node() {
+void inline PMA::add_node() {
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock(task_id);
@@ -2127,7 +2127,7 @@ void PMA::add_node() {
 }
 
 //TODO deal with the case that multiple threads do the binary search and try and make the same region exclusive
-void PMA::add_edge(uint32_t src, uint32_t dest, uint32_t value) {
+void inline PMA::add_edge(uint32_t src, uint32_t dest, uint32_t value) {
   // printf("src = %d, dest = %d, val = %d\n", src,dest,value);
   if (value != 0) {
     uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
@@ -2196,7 +2196,7 @@ void PMA::add_edge(uint32_t src, uint32_t dest, uint32_t value) {
   }
 }
 
-bool PMA::add_edge_update(uint32_t src, uint32_t dest, uint32_t value) {
+bool inline PMA::add_edge_update(uint32_t src, uint32_t dest, uint32_t value) {
   if (value != 0) {
 #if ENABLE_PMA_LOCK == 1
     uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
@@ -2270,7 +2270,9 @@ bool PMA::add_edge_update(uint32_t src, uint32_t dest, uint32_t value) {
   return false;
 }
 
-bool __attribute__ ((noinline)) PMA::add_edge_update_fast(uint32_t src, uint32_t dest, uint32_t value, uint64_t task_id) {
+// bool __attribute__ ((noinline)) PMA::add_edge_update_fast(uint32_t src, uint32_t dest, uint32_t value, uint64_t task_id) {
+bool inline PMA::add_edge_update_fast(uint32_t src, uint32_t dest, uint32_t value, uint64_t task_id) {
+    // printf("add edge update fast: src %u, dest %u, val %u, task id %u\n", src, dest, value, task_id);
     __builtin_prefetch(&nodes[src]);
     __builtin_prefetch(&edges);
     if (value != 0) {
@@ -2321,6 +2323,7 @@ bool __attribute__ ((noinline)) PMA::add_edge_update_fast(uint32_t src, uint32_t
         , held_locks
         #endif
         );
+      // printf("\tinserted (%u, %u)\n", src, dest);
       // edges.list_lock.unlock_shared();
       // print_array();
       assert(check_no_locks_for_me(task_id));
@@ -2330,7 +2333,7 @@ bool __attribute__ ((noinline)) PMA::add_edge_update_fast(uint32_t src, uint32_t
   return false;
 }
 
-void PMA::add_edge_batch_update_no_val(uint32_t *srcs, uint32_t *dests, uint_t edge_count) {
+void inline PMA::add_edge_batch_update_no_val(uint32_t *srcs, uint32_t *dests, uint_t edge_count) {
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2*edge_count);
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock_shared(0);
@@ -2346,7 +2349,7 @@ void PMA::add_edge_batch_update_no_val(uint32_t *srcs, uint32_t *dests, uint_t e
   node_lock.unlock_shared(0);
 #endif
 }
-void PMA::add_edge_batch_update(uint32_t *srcs, uint32_t *dests, uint32_t *values, uint_t edge_count) {
+void inline PMA::add_edge_batch_update(uint32_t *srcs, uint32_t *dests, uint32_t *values, uint_t edge_count) {
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2*edge_count);
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock_shared(0);
@@ -2367,7 +2370,7 @@ void PMA::add_edge_batch_update(uint32_t *srcs, uint32_t *dests, uint32_t *value
 // merge a dense batch with PMA into a specified region of the giant output
 // array
 // return nnz in the range of the merge
-uint64_t do_merge(uint32_t* new_dests, uint32_t* new_vals, uint64_t
+uint64_t inline do_merge(uint32_t* new_dests, uint32_t* new_vals, uint64_t
 output_start, pair_uint *es, uint64_t batch_start, uint64_t batch_end,
 uint32_t* dests, uint32_t* vals, uint64_t pma_start, uint64_t pma_end, uint32_t loglogN)
 {
@@ -2495,7 +2498,7 @@ uint32_t* dests, uint32_t* vals, uint64_t pma_start, uint64_t pma_end, uint32_t 
 }
 
 // large merge
-void PMA::add_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count) {
+void inline PMA::add_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count) {
   //printf("starting add_edge_batch_update_no_val_parallel\n");
   printf("*** BATCH NO VAL PARALLEL NOT CURRENTLY WORKING ***\n");
   return;
@@ -2687,7 +2690,7 @@ void PMA::add_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_cou
 }
 
 // batch delete exclude merge
-uint64_t do_exclude(uint32_t* new_dests, uint32_t* new_vals, uint64_t
+uint64_t inline do_exclude(uint32_t* new_dests, uint32_t* new_vals, uint64_t
 output_start, pair_uint *es, uint64_t batch_start, uint64_t batch_end,
 uint32_t* dests, uint32_t* vals, uint64_t pma_start, uint64_t pma_end, uint32_t
 loglogN, uint64_t num_nodes)
@@ -2789,7 +2792,7 @@ loglogN, uint64_t num_nodes)
 }
 
 // do merge or not based on size of batch
-void PMA::add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t threshold) {
+void inline PMA::add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t threshold) {
   // default
   if (threshold < 0) {
     if (edges.N > UINT32_MAX) {
@@ -2823,7 +2826,7 @@ void PMA::add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t thr
 }
 
 // large merge
-void PMA::remove_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count) {
+void inline PMA::remove_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count) {
   printf(" RM BATCH NOT WORKING FOR NOW \n");
   return;
 
@@ -2999,7 +3002,7 @@ void PMA::remove_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_
 }
 
 // do merge or not based on size of batch
-void PMA::remove_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t threshold) {
+void inline PMA::remove_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t threshold) {
   // default
   if (threshold < 0) {
     if (edges.N > UINT32_MAX) {
@@ -3034,7 +3037,7 @@ void PMA::remove_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t 
   }
 }
 
-bool PMA::remove_edge(uint32_t src, uint32_t dest) {
+bool inline PMA::remove_edge(uint32_t src, uint32_t dest) {
   //printf(" trying to remove src = %d, dest = %d\n", src,dest);
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2);
   #if ENABLE_PMA_LOCK == 1
@@ -3109,7 +3112,7 @@ bool PMA::remove_edge(uint32_t src, uint32_t dest) {
   return true;
 }
 
-void PMA::remove_edge_fast(uint32_t src, uint32_t dest, uint64_t task_id) {
+void inline PMA::remove_edge_fast(uint32_t src, uint32_t dest, uint64_t task_id) {
   //printf(" trying to remove src = %d, dest = %d\n", src,dest);
   #if ENABLE_PMA_LOCK == 1
   pair_int held_locks = grab_locks_for_leaf_with_resets(task_id, src);
@@ -3171,7 +3174,7 @@ void PMA::remove_edge_fast(uint32_t src, uint32_t dest, uint64_t task_id) {
   //print_array();
 }
 
-void PMA::remove_edge_batch(uint32_t *srcs, uint32_t *dests, uint_t edge_count) {
+void inline PMA::remove_edge_batch(uint32_t *srcs, uint32_t *dests, uint_t edge_count) {
   uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2*edge_count);
 #if ENABLE_PMA_LOCK == 1
   node_lock.lock_shared(0);
@@ -3190,7 +3193,7 @@ void PMA::remove_edge_batch(uint32_t *srcs, uint32_t *dests, uint_t edge_count) 
 
 
 
-PMA::PMA(uint32_t init_n) {
+inline PMA::PMA(uint32_t init_n) {
   next_task_id = 1;
   //making sure logN is at least 4
   edges.N = max(2UL << bsr_word(init_n*2), 16UL);
@@ -3228,7 +3231,7 @@ PMA::PMA(uint32_t init_n) {
   }
 }
 
-PMA::PMA(PMA &other) {
+inline PMA::PMA(PMA &other) {
   nodes = other.nodes;
   next_task_id = 1;
   edges.N = other.edges.N;
@@ -3254,7 +3257,7 @@ PMA::PMA(PMA &other) {
 }
 
 //TODO free lock array
-PMA::~PMA() { 
+inline PMA::~PMA() { 
   free((void*)edges.vals);
   free((void*)edges.dests);
 }

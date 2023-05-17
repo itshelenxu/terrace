@@ -7,7 +7,7 @@
 #define num_tries 3
 #define wait_time 1
 
-#define ENABLE_PMA_LOCK 1
+#define ENABLE_PMA_LOCK 0
 
 //TODO simplify since they don't need to be recursive anymore
 //TODO get rid of locks being deleted
