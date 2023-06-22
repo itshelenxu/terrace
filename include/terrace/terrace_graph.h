@@ -140,6 +140,9 @@ static inline void unlock(uint32_t *data)
 			void add_edge_batch(vertex *srcs,vertex *dests, uint32_t edge_count,
 													std::vector<uint32_t>& perm);
 #endif
+      
+			void build_from_batch(vertex *srcs,vertex *dests, uint32_t vertex_count, uint32_t edge_count);
+
 
 #if WEIGHTED
 			void add_edge_batch_no_perm(vertex *srcs,vertex *dests, weight *w, uint32_t
@@ -178,6 +181,8 @@ static inline void unlock(uint32_t *data)
 
       template <class F>
       void map_neighbors_early_exit(size_t i, F &&f) const;
+
+      void verify_neighbors(size_t i, uint32_t* arr) const;
 
       uint32_t get_num_edges(void);
       uint32_t get_num_vertices(void) const;
@@ -685,6 +690,68 @@ static inline void unlock(uint32_t *data)
     return 0;
   }
 
+
+	void inline TerraceGraph::build_from_batch(vertex *srcs, vertex *dests, uint32_t vertex_count, uint32_t edge_count) {
+		uint8_t *array_pma = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+		uint8_t *array_btree = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+
+		// generate partitions array
+		std::vector<uint32_t> parts;
+		vertex cur_src = srcs[0];
+		parts.emplace_back(0);
+		for (uint32_t i = 1; i < edge_count; i++) {
+			if (cur_src != srcs[i]) {
+				parts.emplace_back(i);
+				cur_src = srcs[i];
+			}
+		}
+		parts.emplace_back(edge_count);
+		//BitArray array_btree_node(parts.size());
+		uint8_t *array_btree_node = (uint8_t*)calloc(parts.size(), sizeof(uint8_t));
+
+		// try and add edges in place and store overflow edges in sec_list
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    //uint32_t i = 0; i < parts.size()-1; i++) {
+#if WEIGHTED
+			add_inplace(srcs, dests, wghts, i, parts, array_pma, array_btree,
+									array_btree_node);
+#else
+			add_inplace(srcs, dests, i, parts, array_pma, array_btree,
+									array_btree_node);
+#endif
+		});
+
+    uint32_t edges_for_pma = 0;
+    uint32_t edges_for_btree = 0;
+    for(uint32_t i = 0; i < edge_count; i++) {
+      edges_for_pma += array_pma[i];
+      edges_for_btree += array_btree[i];
+    }
+    printf("starting to insert items to pma\n");
+    printf("edges for pma %u, edges for btree %u\n", edges_for_pma, edges_for_btree);
+		// insert edges from the sec list to PMA
+		uint32_t *additional_degrees = (uint32_t*)calloc(vertex_count, sizeof(uint32_t));
+
+    // populate additional_degrees with how many went to each node in the PMA
+    second_level.build_from_edges(srcs, dests, array_pma, vertex_count, edge_count, additional_degrees);
+
+    for (uint32_t i = 0; i < vertex_count; i++) {
+      vertices[i].degree += additional_degrees[i]; 
+    }
+    printf("done with pma\n");
+		
+		// insert edges from sec list to b-tree 
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    // for (uint32_t i = 0; i < parts.size()-1; i++) {
+			if (array_btree_node[i] == 1) {
+#if WEIGHTED
+				add_btree(srcs, dests, wghts, i, parts, array_btree);
+#else
+				add_btree(srcs, dests, i, parts, array_btree);
+#endif
+			}
+		});
+	}
 
 // add edge in batch
 #if WEIGHTED
@@ -1387,6 +1454,7 @@ unlock:
   void inline TerraceGraph::map_neighbors_no_early_exit(size_t i, F &&f) const {
       uint32_t degree = vertices[i].degree;
       uint32_t local_idx = 0;
+      // printf("map no early exit for vtx %lu, degree %u\n", i, degree);
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
         while (local_idx < degree) {
           auto v = vertices[i].neighbors[local_idx];
@@ -1452,6 +1520,93 @@ unlock:
     }
   }
 
+  void inline TerraceGraph::verify_neighbors(size_t i, uint32_t* arr) const {
+      uint32_t degree = vertices[i].degree;
+      // printf("verifying vtx %lu with degree %u\n", i, degree);
+      uint32_t local_idx = 0;
+      uint32_t edges_so_far = 0;
+      if (degree <= NUM_IN_PLACE_NEIGHBORS) {
+        while (local_idx < degree) {
+          auto v = vertices[i].neighbors[local_idx];
+          if (v != arr[edges_so_far]) {
+            printf("IN PLACE: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+          }
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          ++edges_so_far;
+          ++local_idx;  
+        }
+      } else { //degree > num_in_place
+#if PREFETCH
+        if (is_btree(i)) {
+          __builtin_prefetch(vertices[i].aux_neighbors);  
+        } else {
+          __builtin_prefetch(&second_level.nodes[i]);  
+        }
+#endif
+        while (local_idx < NUM_IN_PLACE_NEIGHBORS) {
+          auto v = vertices[i].neighbors[local_idx];
+          if (v != arr[edges_so_far]) {
+            printf("IN PLACE: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);  
+          }
+
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          ++local_idx;
+          ++edges_so_far;
+#if PREFETCH
+          if (local_idx == NUM_IN_PLACE_NEIGHBORS/2) {
+        		if (is_btree(i)) {
+              __builtin_prefetch(((tl_container*)vertices[i].aux_neighbors)->get_root());  
+            } else {
+              __builtin_prefetch(&second_level.edges.dests[second_level.nodes[i].beginning]);
+            }
+          }
+#endif
+        }
+        if (!is_btree(i)) {
+          
+          uint64_t idx = second_level.nodes[i].beginning + 1;
+          uint64_t idx_end = second_level.nodes[i].end;
+          while ( idx < idx_end) {
+            auto v = second_level.edges.dests[idx];
+            if ( v != NULL_VAL) {
+              if (v != arr[edges_so_far]) {
+                printf("\tIN PMA LEVEL: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+              }
+#if WEIGHTED
+            auto w = second_level.edges.vals[idx];
+#endif
+
+              ++edges_so_far;
+              idx++;
+            } else {
+              idx = ((idx >> second_level.edges.loglogN) +1 ) << (second_level.edges.loglogN);
+            }
+          }
+        } else {
+          auto it = ((tl_container*)(vertices[i].aux_neighbors))->begin();
+          while (!it.done()) {
+#if WEIGHTED
+            auto v = (*it).first;
+            auto w = (*it).second;
+#else
+            auto v = *it;
+            if (v != arr[edges_so_far]) {
+              printf("\tIN BTREE LEVEL: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+            }
+#endif
+            ++edges_so_far;
+            ++it;
+				}
+      }
+    }
+  }
+
+
+
   // TODO: make this early exit
   template <class F>
   void inline TerraceGraph::map_neighbors_early_exit(size_t i, F &&f) const {
@@ -1500,6 +1655,8 @@ unlock:
 #if WEIGHTED
             auto w = second_level.edges.vals[idx];
 #endif
+
+              // printf("map in PMA with early exit: (%lu, %lu)\n", i, v);
               if(f(i, v)) break;
               idx++;
             } else {

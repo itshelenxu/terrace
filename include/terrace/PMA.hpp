@@ -120,6 +120,8 @@ public:
   void add_edge_batch_update(uint32_t *srcs, uint32_t *dests, uint32_t *values, uint_t edge_count);
   void add_edge_batch_update_no_val(uint32_t *srcs, uint32_t *dests, uint_t edge_count);
 
+  void build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint32_t vertex_count, uint32_t edge_count, uint32_t* additional_degrees);
+
   // merge functions in original PMA with no val
   void add_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count);
   void add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int64_t threshold = -1);
@@ -2789,6 +2791,146 @@ loglogN, uint64_t num_nodes)
     }
   }
   return result_idx - output_start;
+}
+
+void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint32_t vertex_count, uint32_t edge_count, uint32_t* additional_degrees) {
+  // step 1 : build a CSR
+  uint32_t* vertex_array = (uint32_t*)calloc(vertex_count, sizeof(uint32_t)); 
+  uint32_t edges_for_pma = 0;
+  for(uint32_t i = 0; i < edge_count; i++) {
+    if(pma_edges[i]) {
+      uint32_t s = srcs[i];
+      additional_degrees[s]++;
+      vertex_array[s]++;
+      edges_for_pma++;
+    }
+  }
+
+  printf("build from edges: edges for pma = %u\n", edges_for_pma);
+
+  // do prefix sum to get top level of CSR into vertex_array
+  for(uint32_t i = 1; i < vertex_count; i++) {
+    vertex_array[i] += vertex_array[i-1];
+  }
+
+  // and get CSR edge array into pma_edge_array
+  uint32_t* pma_edge_array = (uint32_t*)malloc(edges_for_pma * sizeof(uint32_t));
+  uint32_t pma_edges_so_far = 0;
+  for(uint32_t i = 0; i < edge_count; i++) {
+    if(pma_edges[i]) {
+      pma_edge_array[pma_edges_so_far] = dests[i];
+      pma_edges_so_far++;
+    }
+  } 
+  
+  uint32_t pma_size = vertex_count + pma_edges_so_far;
+  uint32_t new_N = 1;
+  while (new_N < pma_size) { new_N *= 2; }
+
+  // from double_list
+  edges.N = new_N;
+  edges.loglogN = bsr_word(bsr_word(edges.N) + 1);
+  edges.logN = (1 << edges.loglogN);
+  edges.mask_for_leaf = ~(edges.logN - 1);
+  assert(edges.logN > 0);
+  edges.density_limit = ((double) edges.logN - 1)/edges.logN;
+  edges.H = bsr_word(new_N / edges.logN);
+  for (uint32_t i = 0; i <= edges.H; i++) {
+    upper_density_bound[i] = density_bound(&edges, i).y;
+    lower_density_bound[i] = density_bound(&edges, i).x;
+  }
+
+  uint_t num_elts = vertex_count + pma_edges_so_far;
+  uint32_t *space_vals = (uint32_t *)aligned_alloc(64, num_elts * sizeof(*(edges.vals)));
+  uint32_t *space_dests = (uint32_t *)aligned_alloc(64, num_elts * sizeof(*(edges.dests)));
+
+  // step 2: write the PMA at the front of the new array
+  // TODO: can also make this parallel
+  uint32_t position_so_far = 0;
+  for(uint32_t i = 0; i < vertex_count; i++) {
+    // first, write the sentinel
+    if (i == 0) {
+      space_dests[position_so_far] = 0;
+      space_vals[position_so_far] = NULL_VAL;
+    } else {
+      space_dests[position_so_far] = SENT_VAL;
+      space_vals[position_so_far] = i;
+    }
+    position_so_far++;
+    // then write the edges
+    // printf("pma degree of vertex %u = %u\n", i, additional_degrees[i]);
+    for(uint32_t j = 0; j < additional_degrees[i]; j++) {
+      space_dests[position_so_far] = pma_edge_array[vertex_array[i - 1] + j];
+      //if (i == 1) {
+        // printf("\tspace dests %u = %u, pma edge idx %u\n", position_so_far, pma_edge_array[vertex_array[i] + j], vertex_array[i] + j);
+      // }
+      space_vals[position_so_far] = 1;
+      position_so_far++;
+    }
+  }
+  assert(num_elts == position_so_far);
+
+  // step 3: redistribute
+  uint_t num_leaves = new_N >> edges.loglogN;
+  uint_t count_per_leaf = num_elts / num_leaves;
+  uint_t extra = num_elts % num_leaves;
+
+  uint32_t *new_dests = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.dests)));
+  uint32_t *new_vals = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.vals)));
+  uint32_t * old_vals = (uint32_t *)edges.vals;
+  uint32_t * old_dests = (uint32_t *)edges.dests; 
+  // TODO: make this parallel
+  parlay::parallel_for (0, new_N, [&](uint32_t i) {
+  //for (uint32_t i = 0; i < new_N; i++) {
+    new_vals[i] = 0; // setting to null
+    new_dests[i] = NULL_VAL; // setting to null
+  });
+
+  
+  for(uint_t i = 0; i < num_leaves; i++) {
+    // how many are going to this leaf
+    uint_t count_for_leaf = count_per_leaf + (i < extra);
+    // start of leaf in output
+    uint_t in = ((i) << edges.loglogN);
+    // start in input
+    uint_t j2 = count_per_leaf*i +min(i,extra);
+    uint_t j3 = j2;
+    for(uint_t k = in; k < count_for_leaf+in; k++) {
+      new_vals[k] = space_vals[j2];
+      j2++;
+      assert(j2 < num_elts);
+    }
+    for (uint_t k = in; k < count_for_leaf+in; k++) {
+      new_dests[k] = space_dests[j3];
+      if (new_dests[k]==SENT_VAL) {
+        // fixing pointer of node that goes to this sentinel
+        uint32_t node_index = space_vals[j3];
+
+        // printf("fixing sentinel of node %u at position %u\n", node_index, k);
+        fix_sentinel(node_index, k);
+      }
+      j3++;
+    } 
+  }
+
+  /*
+  uint_t num_pma_edges = 0;
+  for(uint_t i = 1; i < edges.N; i++) {
+    if (new_dests[i] != SENT_VAL && new_dests[i] != NULL_VAL) {
+      num_pma_edges++;
+    }
+  }
+  printf("num edges in pma = %u\n", num_pma_edges);
+  */
+
+  free(space_dests);
+  free(space_vals);
+  free(vertex_array);
+
+  free((void*)edges.vals);
+  edges.vals = new_vals;
+  free((void*)edges.dests);
+  edges.dests = new_dests;
 }
 
 // do merge or not based on size of batch
