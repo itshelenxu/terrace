@@ -23,6 +23,7 @@
 #define MIN_KEYS 64
 #define MAX_KEYS (2*MIN_KEYS-1)
 #define MAX_CHILDREN (2*MIN_KEYS)
+#define PARALLEL_HEIGHT_CUTOFF 2
 
 template<class T, class W>
 class BTreeNode {
@@ -62,12 +63,12 @@ class BTreeNode {
 
     uint32_t get_num_nodes() const;
 
-    template <class F> void map_node(F &f) {
+    template <class F> void map_node(size_t src, F &f) {
       for (uint64_t i = 0; i < num_keys; i++) {
 #if WEIGHTED
-        f.update(keys[i], weights[i]);
+        f(src, keys[i], weights[i]);
 #else
-        f.update(keys[i]);
+        f(src, keys[i]);
 #endif
         }
       }
@@ -83,6 +84,23 @@ class BTreeNode {
       }
     }
 
+    // i = src vtx
+    template <class F> void parallel_map_tree(size_t src, F &f) {
+      map_node(src, f);
+      if (level > PSUM_HEIGHT_CUTOFF) {
+        //parallel_for (uint32_t i = 0; i < num_keys+1; i++) {
+        parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) {
+        // for (uint32_t i = 0; i < num_keys+1; i++) {
+          if (children[i] != nullptr)
+            children[i]->parallel_map_tree(src, f);
+        });
+      } else if (!is_leaf) {
+        for (uint32_t i = 0; i < num_keys+1; i++) {
+          if (children[i] != nullptr)
+            children[i]->parallel_map_tree(src, f);
+        }
+      }
+    }
     class NodeIterator {
       public:
         NodeIterator() {};
@@ -114,6 +132,8 @@ class BTreeNode {
     BTreeNode<T, W> *children[MAX_CHILDREN];
     uint32_t num_keys;
     bool is_leaf;
+  public:
+    unsigned short level = 0;
 };
 
 template <class T, class W>
@@ -157,6 +177,14 @@ class BTree {
 
     const BTreeNode<T, W>* get_root(void) const {
       return root;
+    }
+
+    template<class F> void map(F &f) {
+      root->map_tree(f);
+    }
+
+    template<class F> void parallel_map(size_t src, F &f) {
+      root->parallel_map_tree(src, f);
     }
 
     template<class F> void map(F &f) {
@@ -339,6 +367,7 @@ void BTreeNode<T, W>::splitChild(uint32_t i, BTreeNode<T, W> *c) {
   // Create a new node which is going to store (MIN_KEYS-1) keys
   // of c
   BTreeNode<T, W> *z = new BTreeNode<T, W>(c->is_leaf);
+  z->level = c->level;
   z->num_keys = MIN_KEYS - 1;
 
   // Copy the last (MIN_KEYS-1) keys of c to z
@@ -470,6 +499,7 @@ bool BTree<T, W>::insert(T k) {
 
       // Change root
       root = s;
+      root->level = s->level + 1;
 #if WEIGHTED
       return s->children[i]->insertNonFull(k, w);
 #else

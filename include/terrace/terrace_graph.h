@@ -179,6 +179,13 @@ static inline void unlock(uint32_t *data)
       template <class F>
       void map_neighbors_early_exit(size_t i, F &&f) const;
 
+      template <class F>
+      void parallel_map_neighbors_no_early_exit(size_t i, F &&f) const;
+
+      // TODO
+      // template <class F>
+      // void parallel_map_neighbors_early_exit(size_t i, F &&f) const;
+
       uint32_t get_num_edges(void);
       uint32_t get_num_vertices(void) const;
 
@@ -1447,6 +1454,68 @@ unlock:
       }
     }
   }
+
+  // TODO: make parallel
+  template <class F>
+  void TerraceGraph::parallel_map_neighbors_no_early_exit(size_t i, F &&f) const {
+      uint32_t degree = vertices[i].degree;
+      uint32_t local_idx = 0;
+      // just keep the small-degree map serial
+      if (degree <= NUM_IN_PLACE_NEIGHBORS) {
+        while (local_idx < degree) {
+          auto v = vertices[i].neighbors[local_idx];
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          f(i, v);
+          ++local_idx;  
+        }
+      } else { //degree > num_in_place
+#if PREFETCH
+        if (is_btree(i)) {
+          __builtin_prefetch(vertices[i].aux_neighbors);  
+        } else {
+          __builtin_prefetch(&second_level.nodes[i]);  
+        }
+#endif
+        while (local_idx < NUM_IN_PLACE_NEIGHBORS) {
+          auto v = vertices[i].neighbors[local_idx];
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          f(i, v);
+          ++local_idx;
+#if PREFETCH
+          if (local_idx == NUM_IN_PLACE_NEIGHBORS/2) {
+        		if (is_btree(i)) {
+              __builtin_prefetch(((tl_container*)vertices[i].aux_neighbors)->get_root());  
+            } else {
+              __builtin_prefetch(&second_level.edges.dests[second_level.nodes[i].beginning]);
+            }
+          }
+#endif
+        }
+        if (!is_btree(i)) {
+          uint64_t idx = second_level.nodes[i].beginning + 1;
+          uint64_t idx_end = second_level.nodes[i].end;
+          while ( idx < idx_end) {
+            auto v = second_level.edges.dests[idx];
+            if ( v != NULL_VAL) {
+#if WEIGHTED
+            auto w = second_level.edges.vals[idx];
+#endif
+              f(i, v);
+              idx++;
+            } else {
+              idx = ((idx >> second_level.edges.loglogN) +1 ) << (second_level.edges.loglogN);
+            }
+          }
+        } else {
+          ((tl_container*)(vertices[i].aux_neighbors))->parallel_map(i, f);
+      }
+    }
+  }
+
 
   // TODO: make this early exit
   template <class F>
