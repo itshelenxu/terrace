@@ -87,9 +87,9 @@ class BTreeNode {
     // i = src vtx
     template <class F> void parallel_map_tree(size_t src, F &f) {
       map_node(src, f);
-      if (level > PSUM_HEIGHT_CUTOFF) {
+      if (level > PARALLEL_HEIGHT_CUTOFF) {
         //parallel_for (uint32_t i = 0; i < num_keys+1; i++) {
-        parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) {
+        parlay::parallel_for (0, num_keys + 1, [&](uint32_t i) {
         // for (uint32_t i = 0; i < num_keys+1; i++) {
           if (children[i] != nullptr)
             children[i]->parallel_map_tree(src, f);
@@ -185,10 +185,6 @@ class BTree {
 
     template<class F> void parallel_map(size_t src, F &f) {
       root->parallel_map_tree(src, f);
-    }
-
-    template<class F> void map(F &f) {
-      root->map_tree(f);
     }
 
     class Iterator {
