@@ -30,7 +30,7 @@
 namespace graphstore {
 
 #define PREFETCH 1
-#define ENABLE_LOCK 1
+#define ENABLE_LOCK 0
 
 #if WEIGHTED
 #define NUM_IN_PLACE_NEIGHBORS 14
@@ -140,6 +140,9 @@ static inline void unlock(uint32_t *data)
 			void add_edge_batch(vertex *srcs,vertex *dests, uint32_t edge_count,
 													std::vector<uint32_t>& perm);
 #endif
+      
+			void build_from_batch(vertex *srcs,vertex *dests, uint32_t vertex_count, uint32_t edge_count);
+
 
 #if WEIGHTED
 			void add_edge_batch_no_perm(vertex *srcs,vertex *dests, weight *w, uint32_t
@@ -185,6 +188,8 @@ static inline void unlock(uint32_t *data)
       // TODO
       // template <class F>
       // void parallel_map_neighbors_early_exit(size_t i, F &&f) const;
+      
+      void verify_neighbors(size_t i, uint32_t* arr) const;
 
       uint32_t get_num_edges(void);
       uint32_t get_num_vertices(void) const;
@@ -250,16 +255,16 @@ static inline void unlock(uint32_t *data)
       uint64_t inplace_size{0};
   };
 
-  TerraceGraph::TerraceGraph(uint32_t size) : second_level(size), num_vertices(size) {
+  inline TerraceGraph::TerraceGraph(uint32_t size) : second_level(size), num_vertices(size) {
     inplace_size = size * sizeof(vertex_block);
     vertices = (vertex_block*)calloc(size, sizeof(vertex_block));
   }
 
-  TerraceGraph::~TerraceGraph() {
+  inline TerraceGraph::~TerraceGraph() {
     free(vertices);
   }
 
-  bool TerraceGraph::check_in_place_dup(const vertex s, const vertex d) const {
+  bool inline TerraceGraph::check_in_place_dup(const vertex s, const vertex d) const {
     for (uint32_t i = 0; i < NUM_IN_PLACE_NEIGHBORS; i++) {
       if (vertices[s].neighbors[i] == d)
         return true;
@@ -269,12 +274,12 @@ static inline void unlock(uint32_t *data)
   }
 
 #if WEIGHTED
-	void TerraceGraph::add_inplace(vertex *srcs, vertex	*dests, weight *wghts,
+	void inline TerraceGraph::add_inplace(vertex *srcs, vertex	*dests, weight *wghts,
 													uint32_t idx, std::vector<uint32_t>& parts, uint8_t
 													*array_pma, uint8_t *array_btree, uint8_t
 													*array_btree_node) {
 #else
-	void TerraceGraph::add_inplace(vertex *srcs, vertex *dests, uint32_t idx,
+	void inline TerraceGraph::add_inplace(vertex *srcs, vertex *dests, uint32_t idx,
 													std::vector<uint32_t>& parts, uint8_t *array_pma,
 													uint8_t *array_btree, uint8_t *array_btree_node) {
 #endif
@@ -393,11 +398,11 @@ static inline void unlock(uint32_t *data)
  	}
 
 #if WEIGHTED
-	void TerraceGraph::add_btree(vertex *srcs, vertex	*dests, const weight *wghts,
+	void inline TerraceGraph::add_btree(vertex *srcs, vertex	*dests, const weight *wghts,
 												uint32_t i, std::vector<uint32_t>& parts, uint8_t
 												*array) {
 #else 
-	void TerraceGraph::add_btree(vertex *srcs, vertex	*dests, uint32_t i,
+	void inline TerraceGraph::add_btree(vertex *srcs, vertex	*dests, uint32_t i,
 												std::vector<uint32_t>& parts, uint8_t *array) {
 #endif
 		vertex s = srcs[parts[i]];
@@ -448,11 +453,11 @@ static inline void unlock(uint32_t *data)
 
 // add edge in batch
 #if WEIGHTED
-	void TerraceGraph::add_edge_batch_no_perm(vertex *srcs, vertex *dests, weight *wghts,
+	void inline TerraceGraph::add_edge_batch_no_perm(vertex *srcs, vertex *dests, weight *wghts,
 														 uint32_t edge_count)
 	{
 #else
-  void TerraceGraph::add_edge_batch_no_perm(vertex *srcs, vertex *dests, uint32_t edge_count) {
+  void inline TerraceGraph::add_edge_batch_no_perm(vertex *srcs, vertex *dests, uint32_t edge_count) {
 #endif
     printf("add edge batch no perm, edge count %u\n", edge_count);
 		uint8_t *array_pma = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
@@ -485,10 +490,8 @@ static inline void unlock(uint32_t *data)
 		});
     printf("starting to insert items to pma\n");
 		// insert edges from the sec list to PMA
-		// TODO: put in parallel
 		parlay::parallel_for (0, edge_count, [&](uint32_t i) { 
     // for (uint32_t i = 0; i < edge_count; i++) {
-			//auto idx = i;
 			auto idx = i;
 			if (array_pma[idx] == 1) {
 				vertex s = srcs[idx];
@@ -524,9 +527,9 @@ static inline void unlock(uint32_t *data)
 	}
 
 #if WEIGHTED
-  int TerraceGraph::add_edge(const vertex s, const vertex d, const weight w) {
+  int inline TerraceGraph::add_edge(const vertex s, const vertex d, const weight w) {
 #else
-  int TerraceGraph::add_edge(const vertex s, const vertex d) {
+  int inline TerraceGraph::add_edge(const vertex s, const vertex d) {
 #endif
     uint32_t idx;
 #if ENABLE_LOCK
@@ -662,7 +665,7 @@ static inline void unlock(uint32_t *data)
     return 0;
   }
 
-  uint32_t TerraceGraph::is_edge(const vertex s, const vertex d) {
+  uint32_t inline TerraceGraph::is_edge(const vertex s, const vertex d) {
     for (uint32_t i = 0; i < vertices[s].degree && i < NUM_IN_PLACE_NEIGHBORS;
          i++) {
       if (vertices[s].neighbors[i] == d)
@@ -695,18 +698,7 @@ static inline void unlock(uint32_t *data)
   }
 
 
-// add edge in batch
-#if WEIGHTED
-	void TerraceGraph::add_edge_batch(vertex *srcs, vertex *dests, weight *wghts,
-														 uint32_t edge_count, std::vector<uint32_t>& perm)
-	{
-#else
-	void TerraceGraph::add_edge_batch(vertex *srcs, vertex *dests, uint32_t edge_count,
-														 std::vector<uint32_t>& perm) {
-#endif
-		//BitArray array_pma(edge_count);
-		//BitArray array_btree(edge_count);
-
+	void inline TerraceGraph::build_from_batch(vertex *srcs, vertex *dests, uint32_t vertex_count, uint32_t edge_count) {
 		uint8_t *array_pma = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
 		uint8_t *array_btree = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
 
@@ -735,11 +727,89 @@ static inline void unlock(uint32_t *data)
 									array_btree_node);
 #endif
 		});
+
+    uint32_t edges_for_pma = 0;
+    uint32_t edges_for_btree = 0;
+    for(uint32_t i = 0; i < edge_count; i++) {
+      edges_for_pma += array_pma[i];
+      edges_for_btree += array_btree[i];
+    }
     printf("starting to insert items to pma\n");
+    printf("edges for pma %u, edges for btree %u\n", edges_for_pma, edges_for_btree);
 		// insert edges from the sec list to PMA
-		// TODO: put in parallel
+		uint32_t *additional_degrees = (uint32_t*)calloc(vertex_count, sizeof(uint32_t));
+
+    // populate additional_degrees with how many went to each node in the PMA
+    second_level.build_from_edges(srcs, dests, array_pma, vertex_count, edge_count, additional_degrees);
+
+    for (uint32_t i = 0; i < vertex_count; i++) {
+      vertices[i].degree += additional_degrees[i]; 
+    }
+    printf("done with pma\n");
+		
+		// insert edges from sec list to b-tree 
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    // for (uint32_t i = 0; i < parts.size()-1; i++) {
+			if (array_btree_node[i] == 1) {
+#if WEIGHTED
+				add_btree(srcs, dests, wghts, i, parts, array_btree);
+#else
+				add_btree(srcs, dests, i, parts, array_btree);
+#endif
+			}
+		});
+	}
+
+// add edge in batch
+#if WEIGHTED
+	void inline TerraceGraph::add_edge_batch(vertex *srcs, vertex *dests, weight *wghts,
+														 uint32_t edge_count, std::vector<uint32_t>& perm)
+	{
+#else
+	void inline TerraceGraph::add_edge_batch(vertex *srcs, vertex *dests, uint32_t edge_count,
+														 std::vector<uint32_t>& perm) {
+#endif
+    printf("starting add edge batch \n");
+		uint8_t *array_pma = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+		uint8_t *array_btree = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+
+		// generate partitions array
+		std::vector<uint32_t> parts;
+		vertex cur_src = srcs[0];
+		parts.emplace_back(0);
+		for (uint32_t i = 1; i < edge_count; i++) {
+			if (cur_src != srcs[i]) {
+				parts.emplace_back(i);
+				cur_src = srcs[i];
+			}
+		}
+		parts.emplace_back(edge_count);
+		//BitArray array_btree_node(parts.size());
+		uint8_t *array_btree_node = (uint8_t*)calloc(parts.size(), sizeof(uint8_t));
+
+		// try and add edges in place and store overflow edges in sec_list
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    //uint32_t i = 0; i < parts.size()-1; i++) {
+#if WEIGHTED
+			add_inplace(srcs, dests, wghts, i, parts, array_pma, array_btree,
+									array_btree_node);
+#else
+			add_inplace(srcs, dests, i, parts, array_pma, array_btree,
+									array_btree_node);
+#endif
+		});
+
+    uint32_t edges_for_pma = 0;
+    uint32_t edges_for_btree = 0;
+    for(uint32_t i = 0; i < edge_count; i++) {
+      edges_for_pma += array_pma[i];
+      edges_for_btree += array_btree[i];
+    }
+    printf("starting to insert items to pma\n");
+    printf("edges for pma %u, edges for btree %u\n", edges_for_pma, edges_for_btree);
+		// insert edges from the sec list to PMA
+		// parlay::parallel_for (0, edge_count, [&](uint32_t i) { 
     for (uint32_t i = 0; i < edge_count; i++) {
-			//auto idx = i;
 			auto idx = perm[i];
 			if (array_pma[idx] == 1) {
 				vertex s = srcs[idx];
@@ -758,12 +828,13 @@ static inline void unlock(uint32_t *data)
 				unlock(&vertices[s].degree);
 #endif
 			}
-		}
+    }
+		// });
     printf("done with pma\n");
 		
 		// insert edges from sec list to b-tree 
-		// TODO: put in parallel
-    for (uint32_t i = 0; i < parts.size()-1; i++) {
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    // for (uint32_t i = 0; i < parts.size()-1; i++) {
 			if (array_btree_node[i] == 1) {
 #if WEIGHTED
 				add_btree(srcs, dests, wghts, i, parts, array_btree);
@@ -771,10 +842,10 @@ static inline void unlock(uint32_t *data)
 				add_btree(srcs, dests, i, parts, array_btree);
 #endif
 			}
-		}
+		});
 	}
 
-	int TerraceGraph::remove_edge(const vertex s, const vertex d) {
+	int inline TerraceGraph::remove_edge(const vertex s, const vertex d) {
 		uint32_t idx;
 		int ret{0};
 #if ENABLE_LOCK
@@ -892,7 +963,7 @@ unlock:
 		return ret;
 	}
 
-  TerraceGraph::NeighborIterator TerraceGraph::neighbors(const vertex v) const {
+  inline TerraceGraph::NeighborIterator TerraceGraph::neighbors(const vertex v) const {
     return NeighborIterator(this, v);
   }
 
@@ -904,7 +975,7 @@ unlock:
 #endif
   }
 
-  uint64_t TerraceGraph::get_size(void) {
+  uint64_t inline TerraceGraph::get_size(void) {
     uint64_t total_size{0};
     total_size += inplace_size;
     total_size += second_level.get_size();
@@ -916,18 +987,18 @@ unlock:
     return total_size;
   }
 
-  uint32_t TerraceGraph::get_num_edges(void) {
+  uint32_t inline TerraceGraph::get_num_edges(void) {
 		uint64_t num_edges{0};
 		for (uint32_t i = 0; i < num_vertices; i++)
 			num_edges += vertices[i].degree;
 		return num_edges;
   }
 
-  uint32_t TerraceGraph::get_num_vertices(void) const {
+  uint32_t inline TerraceGraph::get_num_vertices(void) const {
     return num_vertices;
   }
 
-  void TerraceGraph::print_vertex_block(const vertex v) const {
+  void inline TerraceGraph::print_vertex_block(const vertex v) const {
     std::cout << "Vertex: " << v << "\n";
     std::cout << "Degree: " << vertices[v].degree << "\n";
     std::cout << "In place neighbors: \n";
@@ -943,7 +1014,7 @@ unlock:
     std::cout << '\b' << '\n';
   }
 
-  TerraceGraph::NeighborIterator::NeighborIterator(const TerraceGraph *graph, TerraceGraph::vertex
+  inline TerraceGraph::NeighborIterator::NeighborIterator(const TerraceGraph *graph, TerraceGraph::vertex
                                             v) : g(graph), source(v),
   degree(g->vertices[source].degree) {
     memcpy(neighbors, g->vertices[source].neighbors,
@@ -965,7 +1036,7 @@ unlock:
   std::pair<TerraceGraph::vertex, TerraceGraph::weight>
     TerraceGraph::NeighborIterator::operator*(void) const {
 #else
-  TerraceGraph::vertex TerraceGraph::NeighborIterator::operator*(void) const {
+  TerraceGraph::vertex inline TerraceGraph::NeighborIterator::operator*(void) const {
 #endif
     if (local_idx < NUM_IN_PLACE_NEIGHBORS)
 #if WEIGHTED
@@ -983,7 +1054,7 @@ unlock:
       return *tl_it;
   }
 
-  void TerraceGraph::NeighborIterator::operator++(void) {
+  void inline TerraceGraph::NeighborIterator::operator++(void) {
     if (local_idx < NUM_IN_PLACE_NEIGHBORS && local_idx < degree)
       local_idx++;
     else if (!g->is_btree(source))
@@ -992,7 +1063,7 @@ unlock:
       ++tl_it;
   }
 
-  bool TerraceGraph::NeighborIterator::done(void) const {
+  bool inline TerraceGraph::NeighborIterator::done(void) const {
     if (local_idx == degree)
       return true;
     else if (local_idx == NUM_IN_PLACE_NEIGHBORS)
@@ -1000,7 +1071,7 @@ unlock:
     return false;
   }
 
-  bool TerraceGraph::count_common_inplace(const vertex s, const vertex d, uint64_t&
+  bool inline TerraceGraph::count_common_inplace(const vertex s, const vertex d, uint64_t&
                                    s_idx, uint64_t& d_idx, uint32_t& count)
     const {
       uint64_t s_end = vertices[s].degree < NUM_IN_PLACE_NEIGHBORS ?
@@ -1023,7 +1094,7 @@ unlock:
       return (s_v < s && d_v < d);
   }
 
-  TerraceGraph::vertex TerraceGraph::get_pma_edge(uint64_t& idx) const {
+  inline TerraceGraph::vertex TerraceGraph::get_pma_edge(uint64_t& idx) const {
     auto v = second_level.edges.dests[idx];
     if (v == NULL_VAL) {
       idx = ((idx >> second_level.edges.loglogN) +1 ) <<
@@ -1033,7 +1104,7 @@ unlock:
     return v;
   }
 
-  bool TerraceGraph::count_common_inplace_pma(const vertex s, const vertex d,
+  bool inline TerraceGraph::count_common_inplace_pma(const vertex s, const vertex d,
                                        uint64_t& s_idx, uint64_t& d_idx,
                                        uint32_t& count) const {
     uint64_t s_end = vertices[s].degree < NUM_IN_PLACE_NEIGHBORS ?
@@ -1059,7 +1130,7 @@ unlock:
     }
     return (s_v < s && d_v < d);
   }
-  bool TerraceGraph::count_common_inplace_btree(const vertex s, const vertex d,
+  bool inline TerraceGraph::count_common_inplace_btree(const vertex s, const vertex d,
                                          uint64_t& s_idx,
                                          tl_container_iterator& d_it,
                                          uint32_t& count) const {
@@ -1088,7 +1159,7 @@ unlock:
     }
     return (s_v < s && d_v < d);
   }
-  bool TerraceGraph::count_common_pma_pma(const vertex s, const vertex d, uint64_t&
+  bool inline TerraceGraph::count_common_pma_pma(const vertex s, const vertex d, uint64_t&
                                    s_idx, uint64_t& d_idx, uint32_t& count)
     const {
       uint64_t s_end = second_level.nodes[s].end;
@@ -1117,7 +1188,7 @@ unlock:
       }
       return (s_v < s && d_v < d);
   }
-  bool TerraceGraph::count_common_pma_btree(const vertex s, const vertex d, uint64_t&
+  bool inline TerraceGraph::count_common_pma_btree(const vertex s, const vertex d, uint64_t&
                                      s_idx, tl_container_iterator& d_it,
                                      uint32_t& count) const {
     uint64_t s_end = second_level.nodes[s].end;
@@ -1149,7 +1220,7 @@ unlock:
     }
     return (s_v < s && d_v < d);
   }
-  bool TerraceGraph::count_common_btree_btree(const vertex s, const vertex d,
+  bool inline TerraceGraph::count_common_btree_btree(const vertex s, const vertex d,
                                        tl_container_iterator& s_it,
                                        tl_container_iterator& d_it,
                                        uint32_t& count) const {
@@ -1184,7 +1255,7 @@ unlock:
     return (s_v < s && d_v < d);
   }
 
-  uint32_t TerraceGraph::count_common(const vertex s, const vertex d) const {
+  uint32_t inline TerraceGraph::count_common(const vertex s, const vertex d) const {
     uint32_t final_count{0}, local_count{0};
     uint64_t s_idx(0), d_idx{0};
     tl_container_iterator s_it, d_it;
@@ -1387,9 +1458,10 @@ unlock:
 	};
 
   template <class F>
-  void TerraceGraph::map_neighbors_no_early_exit(size_t i, F &&f) const {
+  void inline TerraceGraph::map_neighbors_no_early_exit(size_t i, F &&f) const {
       uint32_t degree = vertices[i].degree;
       uint32_t local_idx = 0;
+      // printf("map no early exit for vtx %lu, degree %u\n", i, degree);
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
         while (local_idx < degree) {
           auto v = vertices[i].neighbors[local_idx];
@@ -1455,7 +1527,7 @@ unlock:
     }
   }
 
-  // TODO: make parallel
+  // parallel map
   template <class F>
   void TerraceGraph::parallel_map_neighbors_no_early_exit(size_t i, F &&f) const {
       uint32_t degree = vertices[i].degree;
@@ -1516,10 +1588,87 @@ unlock:
     }
   }
 
+  // verify neighbors
+  void inline TerraceGraph::verify_neighbors(size_t i, uint32_t* arr) const {
+      uint32_t degree = vertices[i].degree;
+      // printf("verifying vtx %lu with degree %u\n", i, degree);
+      uint32_t local_idx = 0;
+      uint32_t edges_so_far = 0;
+      if (degree <= NUM_IN_PLACE_NEIGHBORS) {
+        while (local_idx < degree) {
+          auto v = vertices[i].neighbors[local_idx];
+          if (v != arr[edges_so_far]) {
+            printf("IN PLACE: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+          }
+          ++edges_so_far;
+          ++local_idx;  
+        }
+      } else { //degree > num_in_place
+#if PREFETCH
+        if (is_btree(i)) {
+          __builtin_prefetch(vertices[i].aux_neighbors);  
+        } else {
+          __builtin_prefetch(&second_level.nodes[i]);  
+        }
+#endif
+        while (local_idx < NUM_IN_PLACE_NEIGHBORS) {
+          auto v = vertices[i].neighbors[local_idx];
+          if (v != arr[edges_so_far]) {
+            printf("IN PLACE: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);  
+          }
+
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          ++local_idx;
+          ++edges_so_far;
+#if PREFETCH
+          if (local_idx == NUM_IN_PLACE_NEIGHBORS/2) {
+        		if (is_btree(i)) {
+              __builtin_prefetch(((tl_container*)vertices[i].aux_neighbors)->get_root());  
+            } else {
+              __builtin_prefetch(&second_level.edges.dests[second_level.nodes[i].beginning]);
+            }
+          }
+#endif
+        }
+        if (!is_btree(i)) {
+          uint64_t idx = second_level.nodes[i].beginning + 1;
+          uint64_t idx_end = second_level.nodes[i].end;
+          while ( idx < idx_end) {
+            auto v = second_level.edges.dests[idx];
+            if ( v != NULL_VAL) {
+              if (v != arr[edges_so_far]) {
+                printf("\tIN PMA LEVEL: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+              }
+              ++edges_so_far;
+              idx++;
+            } else {
+              idx = ((idx >> second_level.edges.loglogN) +1 ) << (second_level.edges.loglogN);
+            }
+          }
+        } else {
+          auto it = ((tl_container*)(vertices[i].aux_neighbors))->begin();
+          while (!it.done()) {
+#if WEIGHTED
+            auto v = (*it).first;
+            auto w = (*it).second;
+#else
+            auto v = *it;
+            if (v != arr[edges_so_far]) {
+              printf("\tIN BTREE LEVEL: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
+            }
+#endif
+            ++edges_so_far;
+            ++it;
+				}
+      }
+    }
+  }
 
   // TODO: make this early exit
   template <class F>
-  void TerraceGraph::map_neighbors_early_exit(size_t i, F &&f) const {
+  void inline TerraceGraph::map_neighbors_early_exit(size_t i, F &&f) const {
       uint32_t degree = vertices[i].degree;
       uint32_t local_idx = 0;
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
@@ -1565,6 +1714,8 @@ unlock:
 #if WEIGHTED
             auto w = second_level.edges.vals[idx];
 #endif
+
+              // printf("map in PMA with early exit: (%lu, %lu)\n", i, v);
               if(f(i, v)) break;
               idx++;
             } else {
@@ -1588,7 +1739,7 @@ unlock:
   }
 
   template <class F, typename VS>
-    void TerraceGraph::map_sparse(F &f, VS &output_vs, uint32_t self_index, bool output) {
+    void inline TerraceGraph::map_sparse(F &f, VS &output_vs, uint32_t self_index, bool output) {
       uint32_t degree = vertices[self_index].degree;
       //std::cout << "vertex: " << self_index << " degree: " << degree << '\n';
       uint32_t local_idx = 0;
@@ -1685,7 +1836,7 @@ unlock:
     }
 
   template <class F, typename VS>
-    void TerraceGraph::map_dense_vs_all(F &f, VS &vs, VS &output_vs, uint32_t self_index, bool output) {
+    void inline TerraceGraph::map_dense_vs_all(F &f, VS &vs, VS &output_vs, uint32_t self_index, bool output) {
       uint32_t degree = vertices[self_index].degree;
       uint32_t local_idx = 0;
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
@@ -1790,7 +1941,7 @@ unlock:
     }
 
   template <class F, typename VS>
-    void TerraceGraph::map_dense_vs_not_all(F &f, VS &vs, VS &output_vs, uint32_t self_index, bool output) {
+    void inline TerraceGraph::map_dense_vs_not_all(F &f, VS &vs, VS &output_vs, uint32_t self_index, bool output) {
       uint32_t degree = vertices[self_index].degree;
       uint32_t local_idx = 0;
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
