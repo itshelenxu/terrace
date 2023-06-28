@@ -2860,7 +2860,12 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
     // then write the edges
     // printf("pma degree of vertex %u = %u\n", i, additional_degrees[i]);
     for(uint32_t j = 0; j < additional_degrees[i]; j++) {
-      space_dests[position_so_far] = pma_edge_array[vertex_array[i - 1] + j];
+      if (i == 0) {
+        space_dests[position_so_far] = pma_edge_array[j];
+      } else {
+        space_dests[position_so_far] = pma_edge_array[vertex_array[i - 1] + j];
+      }
+      
       //if (i == 1) {
         // printf("\tspace dests %u = %u, pma edge idx %u\n", position_so_far, pma_edge_array[vertex_array[i] + j], vertex_array[i] + j);
       // }
@@ -2870,6 +2875,7 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
   }
   assert(num_elts == position_so_far);
 
+  printf("starting copy into PMA\n");
   // step 3: redistribute
   uint_t num_leaves = new_N >> edges.loglogN;
   uint_t count_per_leaf = num_elts / num_leaves;
@@ -2886,8 +2892,8 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
     new_dests[i] = NULL_VAL; // setting to null
   });
 
-  
-  for(uint_t i = 0; i < num_leaves; i++) {
+  parlay::parallel_for(0, num_leaves, [&](uint_t i) {
+  // for(uint_t i = 0; i < num_leaves; i++) {
     // how many are going to this leaf
     uint_t count_for_leaf = count_per_leaf + (i < extra);
     // start of leaf in output
@@ -2911,7 +2917,7 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
       }
       j3++;
     } 
-  }
+  });
 
   /*
   uint_t num_pma_edges = 0;
