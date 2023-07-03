@@ -63,7 +63,7 @@ class BTreeNode {
 
     uint32_t get_num_nodes() const;
 
-    template <class F> void map_node(size_t src, F &f) {
+    template <class F> void map_node(size_t src, F f) const {
       for (uint64_t i = 0; i < num_keys; i++) {
 #if WEIGHTED
         f(src, keys[i], weights[i]);
@@ -73,34 +73,66 @@ class BTreeNode {
         }
       }
 
-    template <class F> void map_tree(F &f) {
-      map_node(f);
+    template <class F> void map_node_early_exit(size_t src, F f) const {
+      for (uint64_t i = 0; i < num_keys; i++) {
+#if WEIGHTED
+        if(f(src, keys[i], weights[i])) break;
+#else
+        if(f(src, keys[i])) break;
+#endif
+        }
+      }
+
+
+    template <class F> void map_tree(size_t src, F f) const {
+      map_node(src, f);
       if (!is_leaf) {
-        //parallel_for (uint32_t i = 0; i < num_keys+1; i++) {
         for (uint32_t i = 0; i < num_keys+1; i++) {
           if (children[i] != nullptr)
-            children[i]->map_tree(f);
+            children[i]->map_tree(src, f);
         }
       }
     }
 
-    // i = src vtx
-    template <class F> void parallel_map_tree(size_t src, F &f) {
+    template <class F> void map_tree_early_exit(size_t src, F f) const {
+      map_node_early_exit(src, f);
+      if (!is_leaf) {
+        for (uint32_t i = 0; i < num_keys+1; i++) {
+          if (children[i] != nullptr)
+            children[i]->map_tree_early_exit(src, f);
+        }
+      }
+    }
+    template <class F> void parallel_map_tree(size_t src, F f) const {
       map_node(src, f);
       if (level > PARALLEL_HEIGHT_CUTOFF) {
-        //parallel_for (uint32_t i = 0; i < num_keys+1; i++) {
         parlay::parallel_for (0, num_keys + 1, [&](uint32_t i) {
-        // for (uint32_t i = 0; i < num_keys+1; i++) {
           if (children[i] != nullptr)
             children[i]->parallel_map_tree(src, f);
         });
       } else if (!is_leaf) {
         for (uint32_t i = 0; i < num_keys+1; i++) {
           if (children[i] != nullptr)
-            children[i]->parallel_map_tree(src, f);
+            children[i]->map_tree(src, f);
         }
       }
     }
+
+    template <class F> void parallel_map_tree_early_exit(size_t src, F f) const {
+      map_node_early_exit(src, f);
+      if (level > PARALLEL_HEIGHT_CUTOFF) {
+        parlay::parallel_for (0, num_keys + 1, [&](uint32_t i) {
+          if (children[i] != nullptr)
+            children[i]->parallel_map_tree_early_exit(src, f);
+        });
+      } else if (!is_leaf) {
+        for (uint32_t i = 0; i < num_keys+1; i++) {
+          if (children[i] != nullptr)
+            children[i]->map_tree_early_exit(src, f);
+        }
+      }
+    }
+
     class NodeIterator {
       public:
         NodeIterator() {};
@@ -179,12 +211,16 @@ class BTree {
       return root;
     }
 
-    template<class F> void map(F &f) {
+    template<class F> void map(F f) {
       root->map_tree(f);
     }
 
-    template<class F> void parallel_map(size_t src, F &f) {
+    template<class F> void parallel_map(size_t src, F f) const {
       root->parallel_map_tree(src, f);
+    }
+
+    template<class F> void parallel_map_early_exit(size_t src, F f) const {
+      root->parallel_map_tree_early_exit(src, f);
     }
 
     class Iterator {

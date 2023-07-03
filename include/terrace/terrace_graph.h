@@ -185,9 +185,8 @@ static inline void unlock(uint32_t *data)
       template <class F>
       void parallel_map_neighbors_no_early_exit(size_t i, F &&f) const;
 
-      // TODO
-      // template <class F>
-      // void parallel_map_neighbors_early_exit(size_t i, F &&f) const;
+      template <class F>
+      void parallel_map_neighbors_early_exit(size_t i, F &&f) const;
       
       void verify_neighbors(size_t i, uint32_t* arr) const;
 
@@ -1591,7 +1590,6 @@ unlock:
   // verify neighbors
   void inline TerraceGraph::verify_neighbors(size_t i, uint32_t* arr) const {
       uint32_t degree = vertices[i].degree;
-      // printf("verifying vtx %lu with degree %u\n", i, degree);
       uint32_t local_idx = 0;
       uint32_t edges_so_far = 0;
       if (degree <= NUM_IN_PLACE_NEIGHBORS) {
@@ -1649,12 +1647,14 @@ unlock:
           }
         } else {
           auto it = ((tl_container*)(vertices[i].aux_neighbors))->begin();
+          uint64_t sum = 0;
           while (!it.done()) {
 #if WEIGHTED
             auto v = (*it).first;
             auto w = (*it).second;
 #else
             auto v = *it;
+            sum += v;
             if (v != arr[edges_so_far]) {
               printf("\tIN BTREE LEVEL: vtx %lu, position %u, got ngh %u, should be %u\n", i, edges_so_far, v, arr[edges_so_far]);
             }
@@ -1662,11 +1662,23 @@ unlock:
             ++edges_so_far;
             ++it;
 				}
+        ParallelTools::Reducer_sum<size_t> psum;
+        // how to pass in psum rather than verify?
+        ((tl_container*)(vertices[i].aux_neighbors))->parallel_map(i, [&psum](auto s, auto d) { psum += d; });
+        ParallelTools::Reducer_sum<size_t> psum_early_exit;
+        // how to pass in psum rather than verify?
+        ((tl_container*)(vertices[i].aux_neighbors))->parallel_map_early_exit(i, [&psum_early_exit](auto s, auto d) { psum_early_exit += d; return false; });
+
+        if (sum != psum.get()) {
+          printf("vertex %lu, got psum %lu, should be %lu\n", i, psum.get(), sum);
+        }
+        if (sum != psum_early_exit.get()) {
+           printf("vertex %lu, got psum early exit %lu, should be %lu\n", i, psum_early_exit.get(), sum);
+        }        
       }
     }
   }
 
-  // TODO: make this early exit
   template <class F>
   void inline TerraceGraph::map_neighbors_early_exit(size_t i, F &&f) const {
       uint32_t degree = vertices[i].degree;
@@ -1737,6 +1749,67 @@ unlock:
       }
     }
   }
+
+  template <class F>
+  void inline TerraceGraph::parallel_map_neighbors_early_exit(size_t i, F &&f) const {
+      uint32_t degree = vertices[i].degree;
+      uint32_t local_idx = 0;
+      if (degree <= NUM_IN_PLACE_NEIGHBORS) {
+        while (local_idx < degree) {
+          auto v = vertices[i].neighbors[local_idx];
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          if(f(i, v)) break;
+          ++local_idx;  
+        }
+      } else { //degree > num_in_place
+#if PREFETCH
+        if (is_btree(i)) {
+          __builtin_prefetch(vertices[i].aux_neighbors);  
+        } else {
+          __builtin_prefetch(&second_level.nodes[i]);  
+        }
+#endif
+        while (local_idx < NUM_IN_PLACE_NEIGHBORS) {
+          auto v = vertices[i].neighbors[local_idx];
+#if WEIGHTED
+          auto w = vertices[i].weights[local_idx];
+#endif
+          if(f(i, v)) break;
+          ++local_idx;
+#if PREFETCH
+          if (local_idx == NUM_IN_PLACE_NEIGHBORS/2) {
+        		if (is_btree(i)) {
+              __builtin_prefetch(((tl_container*)vertices[i].aux_neighbors)->get_root());  
+            } else {
+              __builtin_prefetch(&second_level.edges.dests[second_level.nodes[i].beginning]);
+            }
+          }
+#endif
+        }
+        if (!is_btree(i)) {
+          uint64_t idx = second_level.nodes[i].beginning + 1;
+          uint64_t idx_end = second_level.nodes[i].end;
+          while (idx < idx_end) {
+            auto v = second_level.edges.dests[idx];
+            if (v != NULL_VAL) {
+#if WEIGHTED
+            auto w = second_level.edges.vals[idx];
+#endif
+
+              // printf("map in PMA with early exit: (%lu, %lu)\n", i, v);
+              if(f(i, v)) break;
+              idx++;
+            } else {
+              idx = ((idx >> second_level.edges.loglogN) +1 ) << (second_level.edges.loglogN);
+            }
+          }
+        } else {
+          ((tl_container*)(vertices[i].aux_neighbors))->parallel_map_early_exit(i, f);
+				}
+      }
+    }
 
   template <class F, typename VS>
     void inline TerraceGraph::map_sparse(F &f, VS &output_vs, uint32_t self_index, bool output) {
