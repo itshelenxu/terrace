@@ -20,8 +20,7 @@
  * IN THE SOFTWARE.
  **/
 
-#ifndef _TBASSERT_H_
-#define _TBASSERT_H_ 1
+#pragma once
 
 #ifndef NDEBUG
 
@@ -69,5 +68,3 @@
 #define tbassert(...)  // Nothing.
 
 #endif
-
-#endif  // _TBASSERT_H_

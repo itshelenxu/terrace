@@ -7,8 +7,7 @@
  * ============================================================================
  */
 
-#ifndef _UTIL_H_
-#define _UTIL_H_
+#pragma once
 
 #include <iostream>
 #include <cstring>
@@ -93,4 +92,3 @@ namespace graphstore {
 													timeval* end);
 	std::vector<uint32_t> get_random_permutation(uint32_t num);
 }
-#endif

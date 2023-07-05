@@ -40,7 +40,11 @@ typedef struct _pair_double {
   double y;
 } pair_double;
 
+/*
+#ifndef EDGELONG
 #define EDGELONG 1
+#endif
+*/
 #if EDGELONG == 1
 typedef uint64_t uint_t;
 typedef int64_t int_t;
@@ -158,8 +162,8 @@ public:
 
   pair_int which_locks_in_range(uint_t index, uint_t len, uint32_t guess);
   pair_int which_locks_for_leaf(uint32_t src);
-  bool check_every_lock_in_leaf(uint64_t task_id, uint64_t index);
-  bool check_every_lock_in_node(uint64_t task_id, uint64_t index, uint64_t len);
+  bool check_every_lock_in_leaf(uint64_t task_id, uint_t index);
+  bool check_every_lock_in_node(uint64_t task_id, uint_t index, uint_t len);
 
   uint32_t num_neighbors(uint32_t node) {
     return nodes[node].num_neighbors;
@@ -240,8 +244,6 @@ public:
 static inline uint_t find_node(uint_t index, uint_t len) { return (index / len) * len; }
 
 // PMA.cpp below
-
-# define assert(x)
 
 // given index, return the starting index of the leaf it is in
 //TODO this could be aster if we store a mask and just do a single and

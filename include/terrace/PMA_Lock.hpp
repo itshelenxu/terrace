@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "internal/util.h"
 
-
+#pragma once
 #define num_tries 3
 #define wait_time 1
 

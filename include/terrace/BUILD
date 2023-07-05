@@ -32,6 +32,9 @@ cc_library(
 cc_library(
     name = "btree",
     hdrs = ["btree.h"],
+    deps = [
+    "@ParallelTools//ParallelTools:parallel",
+  ],   
 )
 
 cc_library(

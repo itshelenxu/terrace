@@ -9,9 +9,7 @@
  * ============================================================================
  */
 
-#ifndef _BTREE_H_
-#define _BTREE_H_
-
+#pragma once
 #include <string.h>
 
 #include <utility>
@@ -886,5 +884,3 @@ bool BTree<T, W>::remove(T k) {
     }
     return ret;
 }
-
-#endif
