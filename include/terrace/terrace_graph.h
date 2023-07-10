@@ -190,7 +190,7 @@ static inline void unlock(uint32_t *data)
       
       void verify_neighbors(size_t i, uint32_t* arr) const;
 
-      uint32_t get_num_edges(void);
+      uint64_t get_num_edges(void) const;
       uint32_t get_num_vertices(void) const;
 
       uint32_t count_common(const vertex s, const vertex d) const;
@@ -251,6 +251,7 @@ static inline void unlock(uint32_t *data)
       vertex_block *vertices;
       sl_container second_level;
       uint32_t num_vertices{0};
+      uint64_t num_edges{0};
       uint64_t inplace_size{0};
   };
 
@@ -757,7 +758,10 @@ static inline void unlock(uint32_t *data)
 #endif
 			}
 		});
-	}
+	  for (uint32_t i = 0; i < num_vertices; i++)
+			num_edges += vertices[i].degree;
+    printf("total num edges after build = %lu\n");
+  }
 
 // add edge in batch
 #if WEIGHTED
@@ -986,10 +990,12 @@ unlock:
     return total_size;
   }
 
-  uint32_t inline TerraceGraph::get_num_edges(void) {
+  uint64_t inline TerraceGraph::get_num_edges(void) const {
+    /*
 		uint64_t num_edges{0};
 		for (uint32_t i = 0; i < num_vertices; i++)
 			num_edges += vertices[i].degree;
+    */
 		return num_edges;
   }
 
