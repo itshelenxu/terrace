@@ -304,7 +304,7 @@ bool inline PMA::check_no_locks_for_me(uint64_t task_id) {
     }
     ret = ret && (nodes[i].lock.reason_set_by != task_id);
     if (!ret) {
-      printf("found lock on iter %d that worker %u set the reason with %d\n", i,task_id, nodes[i].lock.reason);
+      printf("found lock on iter %d that worker %lu set the reason with %d\n", i,task_id, nodes[i].lock.reason);
     }
     assert(!nodes[i].lock.i_own_lock(task_id));
     assert(nodes[i].lock.reason_set_by != task_id);
@@ -325,7 +325,7 @@ bool ret = true;
     }
     ret = ret && (nodes[i].lock.reason_set_by != task_id);
     if (!ret) {
-      printf("found lock on iter %d that worker %u set the reason with %d\n", i,task_id, nodes[i].lock.reason);
+      printf("found lock on iter %d that worker %lu set the reason with %d\n", i,task_id, nodes[i].lock.reason);
     }
     assert(!nodes[i].lock.i_own_lock(task_id));
     assert(nodes[i].lock.reason_set_by != task_id);
@@ -465,34 +465,34 @@ uint64_t inline PMA::get_size() {
 
 
 void inline print_array(edge_list_t *edges) {
-  printf("N = %ld, logN = %d\n", edges->N, edges->logN);
+  printf("N = %d, logN = %d\n", edges->N, edges->logN);
   for (uint_t i = 0; i < edges->N; i++) {
     if (edges->dests[i]==NULL_VAL) {
-      printf("%ld-x ", i);
+      printf("%d-x ", i);
     } else if ((edges->dests[i]==SENT_VAL) || i == 0) {
       uint32_t value = edges->vals[i];
       if (value == NULL_VAL) {
         value = 0;
       }
-      printf("\n%ld-s(%u):(?, ?) ", i, value);
+      printf("\n%d-s(%u):(?, ?) ", i, value);
     } else {
-      printf("%ld-(%d, %u) ", i, edges->dests[i], edges->vals[i]);
+      printf("%d-(%d, %u) ", i, edges->dests[i], edges->vals[i]);
     }
   }
   printf("\n\n");
 }
 
 void inline PMA::print_array(uint64_t worker_num) {
-  printf("worker num: %lu, N = %ld, logN = %d, density_limit = %f\n", worker_num, edges.N, edges.logN, edges.density_limit);
+  printf("worker num: %lu, N = %d, logN = %d, density_limit = %f\n", worker_num, edges.N, edges.logN, edges.density_limit);
   for (uint_t i = 0; i < edges.N; i++) {
     if (edges.dests[i]==NULL_VAL) {
-      printf("%ld-x ", i);
+      printf("%d-x ", i);
     } else if ((edges.dests[i] == SENT_VAL) || i == 0) {
       uint32_t value = edges.vals[i];
       if (value == NULL_VAL) {
         value = 0;
       }
-      printf("\n worker num: %lu, %ld-s(%u):(%ld, %ld)(%d) ", worker_num, i, value, nodes[value].beginning,
+      printf("\n worker num: %lu, %d-s(%u):(%d, %d)(%d) ", worker_num, i, value, nodes[value].beginning,
              nodes[value].end, nodes[value].num_neighbors);
       #ifndef NDEBUG
       #if ENABLE_PMA_LOCK == 1
@@ -502,7 +502,7 @@ void inline PMA::print_array(uint64_t worker_num) {
         printf(")");
       #endif
     } else {
-      printf("%ld-(%d, %u) ", i, edges.dests[i], edges.vals[i]);
+      printf("%d-(%d, %u) ", i, edges.dests[i], edges.vals[i]);
     }
   }
   printf("\n\n");
@@ -1816,16 +1816,16 @@ void inline PMA::remove(uint64_t task_id, uint_t index, uint32_t elem_dest, uint
   //printf("relasing locks %d through %d with reason %d\n", locks_for_leaf.x, locks_for_rebalance.x -1, GENERAL);
   //printf("before with worker %lu\n", get_worker_num());
   //printf("worker %lu unlocking %d through %d with GENERAL \n", get_worker_num(), locks_for_leaf.x, locks_for_rebalance.x);
-  temp_pfor (int i = held_locks.x; i < locks_for_rebalance.x; i++) {
+  temp_pfor (uint32_t i = held_locks.x; i < locks_for_rebalance.x; i++) {
     nodes[i].lock.unlock(task_id);
   }
   //printf("worker %lu relasing locks %d through %d with reason REBALANCE\n",get_worker_num(), max(locks_for_rebalance.x, locks_for_leaf.x), locks_for_leaf.y);
-  for (int i = max(locks_for_rebalance.x, held_locks.x) ; i <= min(held_locks.y, locks_for_rebalance.y); i++) {
+  for (uint32_t i = max(locks_for_rebalance.x, held_locks.x) ; i <= min(held_locks.y, locks_for_rebalance.y); i++) {
     nodes[i].lock.unlock(task_id, REBALANCE);
   }
   //printf("worker %lu unlocking %d through %d with GENERAL \n", get_worker_num(), locks_for_rebalance.y +1,locks_for_leaf.y);
 
-  for (int i = locks_for_rebalance.y +1; i <= held_locks.y; i++) {
+  for (uint32_t i = locks_for_rebalance.y +1; i <= held_locks.y; i++) {
     nodes[i].lock.unlock(task_id);
   }
 
@@ -1846,7 +1846,7 @@ void inline PMA::remove(uint64_t task_id, uint_t index, uint32_t elem_dest, uint
     //printf("worker %lu: edges.N = %u, orig_n = %u\n",get_worker_num(), edges.N, orig_n);
     #if ENABLE_PMA_LOCK == 1
     release_locks_in_range(task_id, held_locks, GENERAL);
-    for (int i = lock_span.x; i <= lock_span.y; i++) {
+    for (uint32_t i = lock_span.x; i <= lock_span.y; i++) {
       if (i < held_locks.x || i > held_locks.y) {
         nodes[i].lock.lock(task_id, REBALANCE);
         nodes[i].lock.unlock(task_id);
@@ -1893,7 +1893,7 @@ void inline PMA::remove(uint64_t task_id, uint_t index, uint32_t elem_dest, uint
         //printf("worker %lu: somebody else doubled on us so we assume it has been distributed properly 2\n", get_worker_num());
         //printf("worker %lu: edges.N = %u, orig_n = %u\n",get_worker_num(), edges.N, orig_n);
         release_locks_in_range(task_id, held_locks, GENERAL);
-        for (int i = lock_span.x; i <= lock_span.y; i++) {
+        for (uint32_t i = lock_span.x; i <= lock_span.y; i++) {
           if (i < held_locks.x || i > held_locks.y) {
             nodes[i].lock.lock(task_id, REBALANCE);
             nodes[i].lock.unlock(task_id);
@@ -2885,9 +2885,6 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
 
   uint32_t *new_dests = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.dests)));
   uint32_t *new_vals = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.vals)));
-  uint32_t * old_vals = (uint32_t *)edges.vals;
-  uint32_t * old_dests = (uint32_t *)edges.dests; 
-  // TODO: make this parallel
   parlay::parallel_for (0, new_N, [&](uint32_t i) {
   //for (uint32_t i = 0; i < new_N; i++) {
     new_vals[i] = 0; // setting to null
@@ -2946,7 +2943,7 @@ void inline PMA::add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int6
   // default
   if (threshold < 0) {
     if (edges.N > UINT32_MAX) {
-      uint64_t top = edges.N >> 32;
+      uint64_t top = (uint64_t)edges.N >> 32;
       threshold = edges.N / (32+bsr_word(top));
     } else if (edges.N == UINT32_MAX) {
       threshold = edges.N / 32;
@@ -3156,7 +3153,7 @@ void inline PMA::remove_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, i
   // default
   if (threshold < 0) {
     if (edges.N > UINT32_MAX) {
-      uint64_t top = edges.N >> 32;
+      uint64_t top = (uint64_t)edges.N >> 32;
       threshold = edges.N / (32+bsr_word(top));
     } else if (edges.N == UINT32_MAX) {
       threshold = edges.N / 32;

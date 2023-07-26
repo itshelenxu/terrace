@@ -760,7 +760,6 @@ static inline void unlock(uint32_t *data)
 		});
 	  for (uint32_t i = 0; i < num_vertices; i++)
 			num_edges += vertices[i].degree;
-    printf("total num edges after build = %lu\n");
   }
 
 // add edge in batch
