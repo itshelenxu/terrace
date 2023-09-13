@@ -21,6 +21,8 @@
 
 #include <string.h>
 
+#include "ParallelTools/reducer.h"
+
 #include "PMA.hpp"
 // #include "partitioned_counter.h"
 #include "btree.h"

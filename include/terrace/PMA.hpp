@@ -25,6 +25,9 @@ using namespace std;
 #include <sstream> 
 #include <string> 
 
+#include "ParallelTools/parallel.h"
+#include "ParallelTools/reducer.h"
+
 #include "PMA_Lock.hpp"
 
 #define temp_pfor for 
@@ -45,7 +48,7 @@ typedef struct _pair_double {
 #define EDGELONG 1
 #endif
 */
-#if EDGELONG == 1
+#if defined(LONG)
 typedef uint64_t uint_t;
 typedef int64_t int_t;
 #define REDISTRIBUTE_PAR_SIZE (UINT64_MAX)
@@ -2825,8 +2828,8 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
     }
   } 
   
-  uint32_t pma_size = vertex_count + pma_edges_so_far;
-  uint32_t new_N = 1;
+  uint64_t pma_size = vertex_count + pma_edges_so_far;
+  uint64_t new_N = 1;
   while (new_N < pma_size) { new_N *= 2; }
 
   // from double_list

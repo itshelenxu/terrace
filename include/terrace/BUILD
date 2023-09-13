@@ -44,6 +44,7 @@ cc_library(
     "PMA",
     "btree",
     "@ParallelTools//ParallelTools:parallel",
+    "@ParallelTools//ParallelTools:reducer",
   ]
 )
 
