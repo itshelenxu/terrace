@@ -29,10 +29,12 @@
 // #include "BitArray.h"
 //#include "cpp-btree/btree_set.h"
 
+#include "semisort.h"
+
 namespace graphstore {
 
 #define PREFETCH 1
-#define ENABLE_LOCK 0
+#define ENABLE_LOCK 1
 
 #if WEIGHTED
 #define NUM_IN_PLACE_NEIGHBORS 14
@@ -153,6 +155,8 @@ static inline void unlock(uint32_t *data)
 			void add_edge_batch_no_perm(vertex *srcs,vertex *dests, uint32_t edge_count);
 #endif
 
+void add_edge_batch_no_perm(std::tuple<vertex, vertex> *es, uint32_t edge_count);
+
 // TODO: FILLIN
 /*
 #if WEIGHTED
@@ -208,6 +212,10 @@ static inline void unlock(uint32_t *data)
 													std::vector<uint32_t>& parts, uint8_t *array_pma,
 													uint8_t *array_btree, uint8_t *array_btree_node);
 #endif
+
+	void add_inplace(std::tuple<vertex, vertex> *es, uint32_t i,
+													auto& parts, uint8_t *array_pma,
+													uint8_t *array_btree, uint8_t *array_btree_node);
 #if WEIGHTED
 	void add_btree(vertex *srcs, vertex	*dests, const weight *wghts,
 					 			uint32_t i, std::vector<uint32_t>& parts, uint8_t *array);
@@ -215,6 +223,9 @@ static inline void unlock(uint32_t *data)
 	void add_btree(vertex *srcs, vertex	*dests, uint32_t i,
 											std::vector<uint32_t>& parts, uint8_t *array);
 #endif
+
+	void add_btree(std::tuple<vertex, vertex> *es, uint32_t i,
+											auto& parts, uint8_t *array);
 
 			inline bool is_btree(const vertex s) const {
 				return vertices[s].aux_neighbors != nullptr;
@@ -399,6 +410,100 @@ static inline void unlock(uint32_t *data)
 		return;
  	}
 
+	void inline TerraceGraph::add_inplace(std::tuple<vertex, vertex> *es, uint32_t idx,
+													auto& parts, uint8_t *array_pma,
+													uint8_t *array_btree, uint8_t *array_btree_node) {
+
+		vertex s = std::get<0>(es[parts[idx]]);
+		std::pair<uint32_t, uint32_t> range = {parts[idx], parts[idx+1]};
+		uint32_t size = range.second - range.first;
+
+#if ENABLE_LOCK
+		lock(&vertices[s].degree);
+#endif
+		uint32_t degree = this->degree(s);
+		if (degree == 0) { // it's a new src. Copy neighbors to in place
+			uint32_t cnt = size < NUM_IN_PLACE_NEIGHBORS ? size :
+				NUM_IN_PLACE_NEIGHBORS;
+        for (uint32_t i = 0; i < cnt; i++) {
+          vertices[s].neighbors[i] = std::get<1>(es[range.first+i]);
+        }
+			// mark appropriate bit vectors for rest of the neighbors
+			if (vertices[s].aux_neighbors == nullptr && degree + size <=
+					MEDIUM_DEGREE) { // going to pma
+				for (uint32_t i = range.first + cnt; i < range.second; i++) {
+					array_pma[i] = 1;
+				}
+			} else { // going to b-tree
+				for (uint32_t i = range.first + cnt; i < range.second; i++) {
+					array_btree[i] = 1;
+				}
+				array_btree_node[idx] = 1;
+			}
+			// update degree
+			vertices[s].degree += cnt;
+		} else { // some neighbors already exist
+			// merge two sorted lists and find new in_place neighbors
+			uint32_t in_place_limit = degree < NUM_IN_PLACE_NEIGHBORS ? degree :
+				NUM_IN_PLACE_NEIGHBORS;
+			vertex *new_in_place = (vertex*)calloc(degree + size, sizeof(vertex));
+			uint32_t i{0}, j{0}, k{0};
+			for (i = 0, j = range.first; i < in_place_limit && j < range.second;
+					 k++) {
+				if (vertices[s].neighbors[i] < std::get<1>(es[j])) {
+					new_in_place[k] = vertices[s].neighbors[i];
+					i++;
+				} else if (vertices[s].neighbors[i] > std::get<1>(es[j])) {
+					new_in_place[k] = std::get<1>(es[j]);
+					j++;
+				} else {
+					new_in_place[k] = vertices[s].neighbors[i];
+					i++; j++;
+				}
+			}
+			if (i < in_place_limit) {
+				memcpy(new_in_place + k, &vertices[s].neighbors[i],
+							 (in_place_limit-i)*sizeof(vertex));
+				k += (in_place_limit-i);
+			} else if (j < range.second) {
+        for (uint32_t x = 0; x < (range.second-j); x++) {
+          *(new_in_place + k + x) = std::get<1>(es[j+x]);
+        }
+				k += (range.second-j);
+			}
+			// copy new in place neighbors
+			uint32_t cnt = k < NUM_IN_PLACE_NEIGHBORS ? k : NUM_IN_PLACE_NEIGHBORS;
+			memcpy(vertices[s].neighbors, new_in_place, cnt*sizeof(vertex));
+			// copy and mark appropriate bit vectors for rest of the neighbors
+			if (k > NUM_IN_PLACE_NEIGHBORS) {
+				uint32_t sec_cnt = k-NUM_IN_PLACE_NEIGHBORS;
+        for (uint32_t x = 0; x < sec_cnt; x++) {
+           std::get<1>(es[range.first+x]) = new_in_place[cnt+x];
+        }
+				if (vertices[s].aux_neighbors == nullptr && degree + size <=
+						MEDIUM_DEGREE) {
+					for (uint32_t i = range.first; i < range.first + sec_cnt; i++) {
+						array_pma[i] = 1;
+					}
+				} else {
+					for (uint32_t i = range.first; i < range.first + sec_cnt; i++) {
+						array_btree[i] = 1;
+					}
+					array_btree_node[idx] = 1;
+				}
+			}
+			// update degree
+			if (degree < NUM_IN_PLACE_NEIGHBORS) {
+				vertices[s].degree = LOCK_MASK;
+				vertices[s].degree = cnt;
+			}
+		}
+#if ENABLE_LOCK
+		unlock(&vertices[s].degree);
+#endif
+		return;
+ 	}
+
 #if WEIGHTED
 	void inline TerraceGraph::add_btree(vertex *srcs, vertex	*dests, const weight *wghts,
 												uint32_t i, std::vector<uint32_t>& parts, uint8_t
@@ -453,7 +558,92 @@ static inline void unlock(uint32_t *data)
 #endif
 	}
 
+	void inline TerraceGraph::add_btree(std::tuple<vertex, vertex> *es, uint32_t i,
+												auto& parts, uint8_t *array) {
+		vertex s = std::get<0>(es[parts[i]]);
+		std::pair<uint32_t, uint32_t> range = {parts[i], parts[i+1]};
+
+#if ENABLE_LOCK
+		lock(&vertices[s].degree);
+#endif
+		if (vertices[s].aux_neighbors == nullptr) {
+			tl_container *container = new tl_container();
+			vertices[s].aux_neighbors = container;
+			//TODO: the PMA might have more edges than MEDIUM_DEGREE.. Adding
+			//twice the space might be safe
+			uint32_t des[MEDIUM_DEGREE*2] = {0};
+			uint32_t src[MEDIUM_DEGREE*2] = {0};
+			uint32_t nedges = 0;
+			// move neighbors from the second level
+			auto end = second_level.end(s);
+			for (auto it=second_level.begin(s); it!=end; ++it) {
+				container->insert((*it).dest);
+				des[nedges] = (*it).dest;
+				src[nedges] = s;
+				nedges++;
+			}
+			second_level.remove_edge_batch(src, des, nedges);
+		}
+		// insert the rest in the b-tree
+		tl_container *container = (tl_container*)(vertices[s].aux_neighbors);
+		for (uint32_t i = range.first; i < range.second; i++) {
+			if (array[i] ==1) {
+				if (container->insert(std::get<1>(es[i])))
+					vertices[s].degree++;
+			}
+		}
+#if ENABLE_LOCK
+		unlock(&vertices[s].degree);
+#endif
+	}
+
 // add edge in batch
+  void inline TerraceGraph::add_edge_batch_no_perm(std::tuple<vertex, vertex> *es, uint32_t edge_count) {
+    // printf("add edge batch no perm, edge count %u\n", edge_count);
+		uint8_t *array_pma = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+		uint8_t *array_btree = (uint8_t*)calloc(edge_count, sizeof(uint8_t));
+    auto g = [](auto elem) {return std::get<0>(elem);};
+		// generate partitions array
+		auto parts = semisort::semisort_equal_inplace_big(parlay::slice(es, es+edge_count), g, true);
+		//BitArray array_btree_node(parts.size());
+		uint8_t *array_btree_node = (uint8_t*)calloc(parts.size(), sizeof(uint8_t));
+
+		// try and add edges in place and store overflow edges in sec_list
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    //uint32_t i = 0; i < parts.size()-1; i++) {
+			add_inplace(es, i, parts, array_pma, array_btree,
+									array_btree_node);
+		});
+    printf("starting to insert items to pma\n");
+		// insert edges from the sec list to PMA
+		parlay::parallel_for (0, edge_count, [&](uint32_t i) { 
+    // for (uint32_t i = 0; i < edge_count; i++) {
+			auto idx = i;
+			if (array_pma[idx] == 1) {
+				vertex s = std::get<0>(es[idx]);
+#if ENABLE_LOCK
+				lock(&vertices[s].degree);
+#endif
+				uint32_t task_id = 1 + i*2;
+				if (second_level.add_edge_update_fast(std::get<0>(es[idx]), std::get<1>(es[idx]), 1, task_id))
+					vertices[s].degree++;
+#if ENABLE_LOCK
+				unlock(&vertices[s].degree);
+#endif
+			}
+		});
+    printf("done with pma\n");
+		
+		// insert edges from sec list to b-tree 
+		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
+    // for (uint32_t i = 0; i < parts.size()-1; i++) {
+			if (array_btree_node[i] == 1) {
+				add_btree(es, i, parts, array_btree);
+			}
+		});
+	}
+  
+
 #if WEIGHTED
 	void inline TerraceGraph::add_edge_batch_no_perm(vertex *srcs, vertex *dests, weight *wghts,
 														 uint32_t edge_count)
@@ -519,11 +709,7 @@ static inline void unlock(uint32_t *data)
 		parlay::parallel_for (0, parts.size() - 1, [&](uint32_t i) { 
     // for (uint32_t i = 0; i < parts.size()-1; i++) {
 			if (array_btree_node[i] == 1) {
-#if WEIGHTED
-				add_btree(srcs, dests, wghts, i, parts, array_btree);
-#else
 				add_btree(srcs, dests, i, parts, array_btree);
-#endif
 			}
 		});
 	}

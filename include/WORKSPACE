@@ -11,3 +11,7 @@ local_repository(
     path="../../ParallelTools/",
 )
 
+local_repository(
+    name="semisort",
+    path="../../semisort/",
+)

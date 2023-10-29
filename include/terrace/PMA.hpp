@@ -1134,6 +1134,7 @@ void inline PMA::slide_left(uint_t index, uint32_t *vals, uint32_t *dests) {
 // assumes we already hold the list_lock and the relevant lock_array locks
 uint_t inline binary_search(const edge_list_t *list, uint32_t elem_dest, uint32_t elem_val, uint_t start,
                        uint_t end) {
+  assert(start <= end);
   uint32_t *dests = (uint32_t *) list->dests;
 
   uint_t mid = (start + end) / 2;
@@ -1330,13 +1331,16 @@ which_locks_in_range_start:
       start = find_contaning_node(index);
     }
   }
-  if (index == nodes[start].beginning) {
+  if (index < nodes[start].beginning) {
     if (start > 0) {
       start--;
     }
   }
-
-  uint64_t end_index = next_leaf(index + len, edges.loglogN) - 1;
+  uint64_t end_index = index + len - 1;
+  if (index + len > find_leaf(&edges, index + len)) {
+    end_index = next_leaf(index + len, edges.loglogN) - 1;
+  }
+  // printf("end_index = %lu\n", end_index);
   uint32_t end;
   if (end_index < nodes[start].end) {
     end = start;
@@ -2285,6 +2289,8 @@ bool inline PMA::add_edge_update_fast(uint32_t src, uint32_t dest, uint32_t valu
     if (value != 0) {
       assert(check_no_locks_for_me(task_id));
       pair_int held_locks = grab_locks_for_leaf_with_resets(task_id, src);
+      assert(src >= held_locks.x);
+      assert(src <= held_locks.y);
       //assert(nodes[src].lock.i_own_lock(task_id));
       node_t node = nodes[src];
 
@@ -2309,6 +2315,11 @@ bool inline PMA::add_edge_update_fast(uint32_t src, uint32_t dest, uint32_t valu
       }
 #if ENABLE_PMA_LOCK == 1
       pair_int needed_locks = which_locks_in_range(find_leaf(&edges, loc_to_add), edges.logN, src);
+      if (src < needed_locks.x) {
+        needed_locks.x = src;
+      }
+      assert(needed_locks.x >= held_locks.x);
+      assert(needed_locks.y <= held_locks.y);
       for (uint32_t i = held_locks.x; i < needed_locks.x; i++) {
         nodes[i].lock.unlock(task_id, GENERAL);
         held_locks.x = i+1;
@@ -2812,10 +2823,12 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
   }
 
   printf("build from edges: edges for pma = %u\n", edges_for_pma);
+  nodes[0].num_neighbors = additional_degrees[0];
 
   // do prefix sum to get top level of CSR into vertex_array
   for(uint32_t i = 1; i < vertex_count; i++) {
     vertex_array[i] += vertex_array[i-1];
+    nodes[i].num_neighbors = additional_degrees[i];
   }
 
   // and get CSR edge array into pma_edge_array
@@ -2904,9 +2917,9 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
     uint_t j2 = count_per_leaf*i +min(i,extra);
     uint_t j3 = j2;
     for(uint_t k = in; k < count_for_leaf+in; k++) {
+      assert(j2 < num_elts);
       new_vals[k] = space_vals[j2];
       j2++;
-      assert(j2 < num_elts);
     }
     for (uint_t k = in; k < count_for_leaf+in; k++) {
       new_dests[k] = space_dests[j3];
