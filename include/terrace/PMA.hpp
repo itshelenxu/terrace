@@ -127,7 +127,7 @@ public:
   void add_edge_batch_update(uint32_t *srcs, uint32_t *dests, uint32_t *values, uint_t edge_count);
   void add_edge_batch_update_no_val(uint32_t *srcs, uint32_t *dests, uint_t edge_count);
 
-  void build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint32_t vertex_count, uint32_t edge_count, uint32_t* additional_degrees);
+  void build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint64_t vertex_count, uint64_t edge_count, uint32_t* additional_degrees);
 
   // merge functions in original PMA with no val
   void add_edge_batch_update_no_val_parallel(pair_uint *es, uint64_t edge_count);
@@ -2809,11 +2809,11 @@ loglogN, uint64_t num_nodes)
   return result_idx - output_start;
 }
 
-void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint32_t vertex_count, uint32_t edge_count, uint32_t* additional_degrees) {
+void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma_edges, uint64_t vertex_count, uint64_t edge_count, uint32_t* additional_degrees) {
   // step 1 : build a CSR
-  uint32_t* vertex_array = (uint32_t*)calloc(vertex_count, sizeof(uint32_t)); 
-  uint32_t edges_for_pma = 0;
-  for(uint32_t i = 0; i < edge_count; i++) {
+  uint_t* vertex_array = (uint_t*)calloc(vertex_count, sizeof(uint_t)); 
+  uint64_t edges_for_pma = 0;
+  for(uint64_t i = 0; i < edge_count; i++) {
     if(pma_edges[i]) {
       uint32_t s = srcs[i];
       additional_degrees[s]++;
@@ -2833,8 +2833,8 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
 
   // and get CSR edge array into pma_edge_array
   uint32_t* pma_edge_array = (uint32_t*)malloc(edges_for_pma * sizeof(uint32_t));
-  uint32_t pma_edges_so_far = 0;
-  for(uint32_t i = 0; i < edge_count; i++) {
+  uint64_t pma_edges_so_far = 0;
+  for(uint64_t i = 0; i < edge_count; i++) {
     if(pma_edges[i]) {
       pma_edge_array[pma_edges_so_far] = dests[i];
       pma_edges_so_far++;
@@ -2864,8 +2864,8 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
 
   // step 2: write the PMA at the front of the new array
   // TODO: can also make this parallel
-  uint32_t position_so_far = 0;
-  for(uint32_t i = 0; i < vertex_count; i++) {
+  uint64_t position_so_far = 0;
+  for(uint64_t i = 0; i < vertex_count; i++) {
     // first, write the sentinel
     if (i == 0) {
       space_dests[position_so_far] = 0;
@@ -2877,7 +2877,7 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
     position_so_far++;
     // then write the edges
     // printf("pma degree of vertex %u = %u\n", i, additional_degrees[i]);
-    for(uint32_t j = 0; j < additional_degrees[i]; j++) {
+    for(uint64_t j = 0; j < additional_degrees[i]; j++) {
       if (i == 0) {
         space_dests[position_so_far] = pma_edge_array[j];
       } else {
@@ -2901,13 +2901,13 @@ void inline PMA::build_from_edges(uint32_t *srcs, uint32_t *dests, uint8_t * pma
 
   uint32_t *new_dests = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.dests)));
   uint32_t *new_vals = (uint32_t *)aligned_alloc(32, new_N * sizeof(*(edges.vals)));
-  parlay::parallel_for (0, new_N, [&](uint32_t i) {
+  parlay::parallel_for (0, new_N, [&](uint64_t i) {
   //for (uint32_t i = 0; i < new_N; i++) {
     new_vals[i] = 0; // setting to null
     new_dests[i] = NULL_VAL; // setting to null
   });
 
-  parlay::parallel_for(0, num_leaves, [&](uint_t i) {
+  parlay::parallel_for(0, num_leaves, [&](uint64_t i) {
   // for(uint_t i = 0; i < num_leaves; i++) {
     // how many are going to this leaf
     uint_t count_for_leaf = count_per_leaf + (i < extra);
