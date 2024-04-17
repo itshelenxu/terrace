@@ -2972,13 +2972,14 @@ void inline PMA::add_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, int6
 
   // actual inserts into PMA
   if (true || edge_count < (uint64_t) threshold*2) {
-    // node_lock.lock_shared(0);
+    node_lock.lock_shared(0);
     uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2*edge_count);
-    temp_pfor (uint32_t i = 0; i < edge_count; i++) {
+    parlay::parallel_for (0, edge_count, [&](uint64_t i) {
+    // temp_pfor (uint32_t i = 0; i < edge_count; i++) {
       uint32_t src = es[i].x;
       uint32_t dest = es[i].y;
       add_edge_update_fast(src,dest,1,task_id+2*i);
-    }
+    });
 #if ENABLE_PMA_LOCK
     node_lock.unlock_shared(0);
 #endif
@@ -3186,11 +3187,12 @@ void inline PMA::remove_edge_batch_wrapper(pair_uint *es, uint64_t edge_count, i
     node_lock.lock_shared(0);
   #endif
     uint64_t task_id = __sync_fetch_and_add(&next_task_id, 2*edge_count);
-    temp_pfor (uint32_t i = 0; i < edge_count; i++) {
+    // temp_pfor (uint32_t i = 0; i < edge_count; i++) {
+    parlay::parallel_for (0, edge_count, [&](uint64_t i) {
       uint32_t src = es[i].x;
       uint32_t dest = es[i].y;
       remove_edge_fast(src,dest,task_id+2*i);
-    }
+    });
 #if ENABLE_PMA_LOCK
     node_lock.unlock_shared(0);
 #endif
